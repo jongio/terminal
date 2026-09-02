@@ -137,6 +137,7 @@ namespace winrt::TerminalApp::implementation
     {
         // The TerminalPage has to ABSOLUTELY NOT BE constructed during our
         // construction. We can't do ANY xaml till Initialize() is called.
+        _tabPosition = _currentWindowSettings().TabPosition();
 
         // For your own sanity, it's better to do setup outside the ctor.
         // If you do any setup in the ctor that ends up throwing an exception,
@@ -282,7 +283,13 @@ namespace winrt::TerminalApp::implementation
 
     bool TerminalWindow::GetShowTabsInTitlebar()
     {
-        return _currentWindowSettings().ShowTabsInTitlebar();
+        return GetTabPosition() == Microsoft::Terminal::Settings::Model::TabPosition::Top &&
+               _currentWindowSettings().ShowTabsInTitlebar();
+    }
+
+    Microsoft::Terminal::Settings::Model::TabPosition TerminalWindow::GetTabPosition()
+    {
+        return _tabPosition;
     }
 
     bool TerminalWindow::GetInitialAlwaysOnTop()
@@ -607,7 +614,12 @@ namespace winrt::TerminalApp::implementation
         // GH#2061 - If the global setting "Always show tab bar" is
         // set or if "Show tabs in title bar" is set, then we'll need to add
         // the height of the tab bar here.
-        if (_currentWindowSettings().ShowTabsInTitlebar() && !focusMode)
+        const auto tabPosition = GetTabPosition();
+        const auto tabsAlwaysVisible = _currentWindowSettings().ShowTabsInTitlebar() ||
+                                       _currentWindowSettings().AlwaysShowTabs();
+        if (tabPosition == Microsoft::Terminal::Settings::Model::TabPosition::Top &&
+            _currentWindowSettings().ShowTabsInTitlebar() &&
+            !focusMode)
         {
             // In the past, we used to actually instantiate a TitlebarControl
             // and use Measure() to determine the DesiredSize of the control, to
@@ -625,7 +637,7 @@ namespace winrt::TerminalApp::implementation
             static constexpr auto titlebarHeight = 40;
             proposedSize.Height += (titlebarHeight)*scale;
         }
-        else if (_currentWindowSettings().AlwaysShowTabs() && !focusMode)
+        else if (tabsAlwaysVisible && !focusMode)
         {
             // Same comment as above, but with a TabRowControl.
             //
@@ -633,8 +645,17 @@ namespace winrt::TerminalApp::implementation
             // unaccounted-for space in the application. I couldn't tell you
             // where these 10px are coming from, but they need to be included in
             // this math.
-            static constexpr auto tabRowHeight = 32;
-            proposedSize.Height += (tabRowHeight + 10) * scale;
+            if (tabPosition == Microsoft::Terminal::Settings::Model::TabPosition::Left ||
+                tabPosition == Microsoft::Terminal::Settings::Model::TabPosition::Right)
+            {
+                static constexpr auto tabStripWidth = 204;
+                proposedSize.Width += tabStripWidth * scale;
+            }
+            else
+            {
+                static constexpr auto tabRowHeight = 32;
+                proposedSize.Height += (tabRowHeight + 10) * scale;
+            }
         }
 
         return proposedSize;
@@ -1324,17 +1345,29 @@ namespace winrt::TerminalApp::implementation
 
         if (!FocusMode())
         {
-            if (!_currentWindowSettings().AlwaysShowTabs())
+            const auto tabPosition = GetTabPosition();
+            const auto tabsAlwaysVisible = _currentWindowSettings().ShowTabsInTitlebar() ||
+                                           _currentWindowSettings().AlwaysShowTabs();
+            if (!tabsAlwaysVisible)
             {
                 // Hide the title bar = off, Always show tabs = off.
                 static constexpr auto titlebarHeight = 10;
                 pixelSize.Height += (titlebarHeight)*scale;
             }
-            else if (!_currentWindowSettings().ShowTabsInTitlebar())
+            else if (!GetShowTabsInTitlebar())
             {
-                // Hide the title bar = off, Always show tabs = on.
-                static constexpr auto titlebarAndTabBarHeight = 40;
-                pixelSize.Height += (titlebarAndTabBarHeight)*scale;
+                if (tabPosition == Microsoft::Terminal::Settings::Model::TabPosition::Left ||
+                    tabPosition == Microsoft::Terminal::Settings::Model::TabPosition::Right)
+                {
+                    const auto tabStripWidth = _root ? _root->TabStripWidth() : 204.0;
+                    pixelSize.Width += static_cast<float>(tabStripWidth) * scale;
+                }
+                else
+                {
+                    // Hide the title bar = off, Always show tabs = on.
+                    static constexpr auto titlebarAndTabBarHeight = 40;
+                    pixelSize.Height += (titlebarAndTabBarHeight)*scale;
+                }
             }
             // Hide the title bar = on, Always show tabs = on.
             // In this case, we don't add any height because

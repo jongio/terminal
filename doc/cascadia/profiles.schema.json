@@ -2760,6 +2760,17 @@
           ],
           "type": "string"
         },
+        "tabPosition": {
+          "default": "top",
+          "description": "Controls which edge of the window contains the tab row.",
+          "enum": [
+            "top",
+            "bottom",
+            "left",
+            "right"
+          ],
+          "type": "string"
+        },
         "autoHideWindow": {
           "default": false,
           "description": "If enabled, Terminal window will be hidden as soon as it loses focus.",

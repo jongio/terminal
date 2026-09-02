@@ -366,6 +366,7 @@ namespace SettingsModelUnitTests
         })" };
         static constexpr std::string_view userSettings{ R"({
             "showTabsInTitlebar": false,
+            "tabPosition": "left",
             "initialCols" : 240,
             "initialRows" : 60,
             "profiles": [
@@ -380,6 +381,7 @@ namespace SettingsModelUnitTests
         VERIFY_ARE_EQUAL(240, settings->WindowSettingsDefaults().InitialCols());
         VERIFY_ARE_EQUAL(60, settings->WindowSettingsDefaults().InitialRows());
         VERIFY_ARE_EQUAL(false, settings->WindowSettingsDefaults().ShowTabsInTitlebar());
+        VERIFY_ARE_EQUAL(TabPosition::Left, settings->WindowSettingsDefaults().TabPosition());
     }
 
     void DeserializationTests::ValidateProfileOrdering()

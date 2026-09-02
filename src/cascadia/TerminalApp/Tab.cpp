@@ -1597,6 +1597,33 @@ namespace winrt::TerminalApp::implementation
         flyout.Items().Append(moveSubMenu);
     }
 
+    void Tab::UpdateTabPositionText(const TabPosition tabPosition)
+    {
+        ASSERT_UI_THREAD();
+
+        const auto vertical = tabPosition == TabPosition::Left || tabPosition == TabPosition::Right;
+        if (vertical)
+        {
+            _moveLeftMenuItem.Text(RS_(L"TabMoveUp"));
+            _moveRightMenuItem.Text(RS_(L"TabMoveDown"));
+            _closeTabsAfterMenuItem.Text(RS_(L"TabCloseBelow"));
+
+            const auto closeTabsAfterToolTip = RS_(L"TabCloseBelowToolTip");
+            WUX::Controls::ToolTipService::SetToolTip(_closeTabsAfterMenuItem, box_value(closeTabsAfterToolTip));
+            Automation::AutomationProperties::SetHelpText(_closeTabsAfterMenuItem, closeTabsAfterToolTip);
+        }
+        else
+        {
+            _moveLeftMenuItem.Text(RS_(L"TabMoveLeft"));
+            _moveRightMenuItem.Text(RS_(L"TabMoveRight"));
+            _closeTabsAfterMenuItem.Text(RS_(L"TabCloseAfter"));
+
+            const auto closeTabsAfterToolTip = RS_(L"TabCloseAfterToolTip");
+            WUX::Controls::ToolTipService::SetToolTip(_closeTabsAfterMenuItem, box_value(closeTabsAfterToolTip));
+            Automation::AutomationProperties::SetHelpText(_closeTabsAfterMenuItem, closeTabsAfterToolTip);
+        }
+    }
+
     // Method Description:
     // - Append the close menu items to the context menu flyout
     // Arguments:

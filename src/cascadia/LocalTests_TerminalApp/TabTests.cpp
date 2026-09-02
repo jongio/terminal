@@ -75,6 +75,7 @@ namespace TerminalAppLocalTests
         TEST_METHOD(CreateTerminalMuxXamlType);
 
         TEST_METHOD(CreateTerminalPage);
+        TEST_METHOD(TabPositionReloadRequiresRelaunch);
 
         TEST_METHOD(TryDuplicateBadTab);
         TEST_METHOD(TryDuplicateBadPane);
@@ -197,6 +198,38 @@ namespace TerminalAppLocalTests
             VERIFY_IS_NOT_NULL(page);
         });
         VERIFY_SUCCEEDED(result);
+    }
+
+    void TabTests::TabPositionReloadRequiresRelaunch()
+    {
+        const auto page = _commonSetup();
+
+        TestOnUIThread([&]() {
+            const auto originalTab = page->_tabs.GetAt(0);
+            const auto originalTabImpl = winrt::get_self<winrt::TerminalApp::implementation::Tab>(originalTab);
+            const auto settings = page->_settings;
+            settings.WindowSettingsDefaults().ShowTabsInTitlebar(false);
+            VERIFY_ARE_EQUAL(TabPosition::Top, page->_tabPosition);
+            VERIFY_ARE_EQUAL(3u, page->Root().RowDefinitions().Size());
+            VERIFY_ARE_EQUAL(0, Grid::GetRow(page->_tabRow));
+            VERIFY_ARE_EQUAL(L"Move left", originalTabImpl->_moveLeftMenuItem.Text());
+            VERIFY_ARE_EQUAL(L"Move right", originalTabImpl->_moveRightMenuItem.Text());
+            VERIFY_ARE_EQUAL(L"Close tabs to the right", originalTabImpl->_closeTabsAfterMenuItem.Text());
+
+            originalTabImpl->UpdateTabPositionText(TabPosition::Left);
+            VERIFY_ARE_EQUAL(L"Move up", originalTabImpl->_moveLeftMenuItem.Text());
+            VERIFY_ARE_EQUAL(L"Move down", originalTabImpl->_moveRightMenuItem.Text());
+            VERIFY_ARE_EQUAL(L"Close tabs below", originalTabImpl->_closeTabsAfterMenuItem.Text());
+
+            settings.WindowSettingsDefaults().TabPosition(TabPosition::Left);
+            page->SetSettings(settings, true);
+
+            VERIFY_ARE_EQUAL(originalTab, page->_tabs.GetAt(0));
+            VERIFY_ARE_EQUAL(TabPosition::Top, page->_tabPosition);
+            VERIFY_ARE_EQUAL(3u, page->Root().RowDefinitions().Size());
+            VERIFY_ARE_EQUAL(0u, page->Root().ColumnDefinitions().Size());
+            VERIFY_ARE_EQUAL(0, Grid::GetRow(page->_tabRow));
+        });
     }
 
     // Method Description:

@@ -173,6 +173,10 @@
   <data name="TabCloseAfter" xml:space="preserve">
     <value>Close tabs to the right</value>
   </data>
+  <data name="TabCloseBelow" xml:space="preserve">
+    <value>Close tabs below</value>
+    <comment>Text for closing all tabs that appear below the selected tab in a vertical tab strip.</comment>
+  </data>
   <data name="TabCloseOther" xml:space="preserve">
     <value>Close other tabs</value>
   </data>
@@ -437,6 +441,10 @@
   </data>
   <data name="NewTabRun.Text" xml:space="preserve">
     <value>Open a new tab</value>
+  </data>
+  <data name="TabNewButtonText" xml:space="preserve">
+    <value>New tab</value>
+    <comment>Label for the new tab button in vertical tab strip mode.</comment>
   </data>
   <data name="NewPaneRun.Text" xml:space="preserve">
     <value>Alt+Click to split the current window</value>
@@ -887,6 +895,10 @@
   <data name="TabCloseAfterToolTip" xml:space="preserve">
     <value>Close all tabs to the right of this tab</value>
   </data>
+  <data name="TabCloseBelowToolTip" xml:space="preserve">
+    <value>Close all tabs below this tab</value>
+    <comment>Tooltip for closing all tabs that appear below the selected tab in a vertical tab strip.</comment>
+  </data>
   <data name="TabCloseOtherToolTip" xml:space="preserve">
     <value>Close all tabs except this tab</value>
   </data>
@@ -992,6 +1004,14 @@
   </data>
   <data name="TabMoveRight" xml:space="preserve">
     <value>Move right</value>
+  </data>
+  <data name="TabMoveUp" xml:space="preserve">
+    <value>Move up</value>
+    <comment>Moves a tab toward the top of a vertical tab strip.</comment>
+  </data>
+  <data name="TabMoveDown" xml:space="preserve">
+    <value>Move down</value>
+    <comment>Moves a tab toward the bottom of a vertical tab strip.</comment>
   </data>
   <data name="InvalidRegex" xml:space="preserve">
     <value>An invalid regular expression was found.</value>

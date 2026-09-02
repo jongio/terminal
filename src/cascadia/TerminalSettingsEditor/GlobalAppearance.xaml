@@ -53,6 +53,16 @@
                       Style="{StaticResource ComboBoxSettingStyle}" />
         </local:SettingsCard>
 
+        <!--  Position of tab row  -->
+        <local:SettingsCard x:Name="TabPosition"
+                            x:Uid="Globals_TabPosition">
+            <ComboBox AutomationProperties.AccessibilityView="Content"
+                      ItemTemplate="{StaticResource EnumComboBoxTemplate}"
+                      ItemsSource="{x:Bind ViewModel.TabPositionList, Mode=OneWay}"
+                      SelectedItem="{x:Bind ViewModel.CurrentTabPosition, Mode=TwoWay}"
+                      Style="{StaticResource ComboBoxSettingStyle}" />
+        </local:SettingsCard>
+
         <!--  Show Titlebar  -->
         <local:SettingsCard x:Name="ShowTitlebar"
                             x:Uid="Globals_ShowTitlebar">

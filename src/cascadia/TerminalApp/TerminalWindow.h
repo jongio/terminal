@@ -110,6 +110,7 @@ namespace winrt::TerminalApp::implementation
         winrt::Windows::UI::Xaml::ElementTheme GetRequestedTheme();
         Microsoft::Terminal::Settings::Model::LaunchMode GetLaunchMode();
         bool GetShowTabsInTitlebar();
+        Microsoft::Terminal::Settings::Model::TabPosition GetTabPosition();
         bool GetInitialAlwaysOnTop();
         bool GetInitialShowTabsFullscreen();
         float CalcSnappedDimension(const bool widthOrHeight, const float dimension) const;
@@ -186,6 +187,7 @@ namespace winrt::TerminalApp::implementation
         std::optional<winrt::Microsoft::Terminal::Settings::Model::WindowLayout> _cachedLayout{ std::nullopt };
 
         Microsoft::Terminal::Settings::Model::CascadiaSettings _settings{ nullptr };
+        Microsoft::Terminal::Settings::Model::TabPosition _tabPosition{ Microsoft::Terminal::Settings::Model::TabPosition::Top };
         TerminalApp::SettingsLoadEventArgs _initialLoadResult{ nullptr };
 
         TerminalApp::ContentManager _manager{ nullptr };

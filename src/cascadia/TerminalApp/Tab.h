@@ -60,6 +60,7 @@ namespace winrt::TerminalApp::implementation
 
         void UpdateSettings(const winrt::Microsoft::Terminal::Settings::Model::CascadiaSettings& settings,
                             const winrt::Microsoft::Terminal::Settings::Model::WindowSettings& windowSettings);
+        void UpdateTabPositionText(winrt::Microsoft::Terminal::Settings::Model::TabPosition tabPosition);
         void UpdateTitle();
 
         void Close();
