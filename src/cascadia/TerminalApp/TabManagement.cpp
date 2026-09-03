@@ -262,9 +262,11 @@ namespace winrt::TerminalApp::implementation
         // - we're not in focus mode
         // - we're not in full screen, or the user has enabled fullscreen tabs
         // - there is more than one tab, or the user has chosen to always show tabs
+        const auto tabsInTitlebar = _tabPosition == Settings::Model::TabPosition::Top &&
+                                    _currentWindowSettings().ShowTabsInTitlebar();
         const auto isVisible = !_isInFocusMode &&
                                (!_isFullscreen || _showTabsFullscreen) &&
-                               (_currentWindowSettings().ShowTabsInTitlebar() ||
+                               (tabsInTitlebar ||
                                 (_tabs.Size() > 1) ||
                                 _currentWindowSettings().AlwaysShowTabs());
 
@@ -293,10 +295,14 @@ namespace winrt::TerminalApp::implementation
                     auto col = root.ColumnDefinitions().GetAt(tabStripColIdx);
                     if (isVisible)
                     {
+                        col.MinWidth(TabStripMinWidth);
+                        col.MaxWidth(TabStripMaxWidth);
                         col.Width(WUX::GridLengthHelper::FromPixels(_tabStripWidth));
                     }
                     else
                     {
+                        col.MinWidth(0);
+                        col.MaxWidth(TabStripMaxWidth);
                         col.Width(WUX::GridLengthHelper::FromPixels(0));
                     }
                 }

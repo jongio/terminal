@@ -431,8 +431,8 @@ namespace winrt::TerminalApp::implementation
             // Create column definitions
             WUX::Controls::ColumnDefinition tabStripCol;
             tabStripCol.Width(WUX::GridLengthHelper::FromPixels(_tabStripWidth));
-            tabStripCol.MinWidth(100);
-            tabStripCol.MaxWidth(400);
+            tabStripCol.MinWidth(TabStripMinWidth);
+            tabStripCol.MaxWidth(TabStripMaxWidth);
 
             WUX::Controls::ColumnDefinition splitterCol;
             splitterCol.Width(WUX::GridLengthHelper::FromValueAndType(1, WUX::GridUnitType::Auto));
@@ -454,16 +454,24 @@ namespace winrt::TerminalApp::implementation
             contentGrid.Children().Append(infoBarPanel);
             contentGrid.Children().Append(_tabContent);
 
-            // Create the splitter border
-            _tabStripSplitter = WUX::Controls::Border();
-            _tabStripSplitter.Width(4);
+            // Use a button so the resize handle is keyboard focusable and exposed to UI Automation.
+            _tabStripSplitter = WUX::Controls::Button();
+            _tabStripSplitter.Width(TabStripResizeHandleWidth);
+            _tabStripSplitter.Margin(WUX::Thickness{ -4, 0, -4, 0 });
             _tabStripSplitter.Background(WUX::Media::SolidColorBrush{ Colors::Black() });
+            _tabStripSplitter.BorderThickness({});
+            _tabStripSplitter.Padding({});
+            Automation::AutomationProperties::SetName(_tabStripSplitter, RS_(L"TabStripResizeHandleName"));
+            Automation::AutomationProperties::SetHelpText(_tabStripSplitter, RS_(L"TabStripResizeHandleHelpText"));
+            Automation::AutomationProperties::SetLocalizedControlType(_tabStripSplitter, RS_(L"TabStripResizeHandleControlType"));
+            _tabStripStatusWidth = gsl::narrow_cast<uint32_t>(_tabStripWidth);
+            Automation::AutomationProperties::SetItemStatus(_tabStripSplitter, RS_fmt(L"TabStripResizeHandleWidth", *_tabStripStatusWidth));
 
-            // Keep a comfortable resize target without drawing a heavy 4-DIP divider.
+            // Keep the 1-DIP divider visually light while the handle overlaps both adjacent surfaces.
             WUX::Controls::Border splitterVisual;
             splitterVisual.Width(1);
             splitterVisual.HorizontalAlignment(WUX::HorizontalAlignment::Center);
-            _tabStripSplitter.Child(splitterVisual);
+            _tabStripSplitter.Content(splitterVisual);
 
             // Use a custom cursor via InputSystemCursorShape
             _tabStripSplitter.ManipulationMode(WUX::Input::ManipulationModes::None);
@@ -477,8 +485,8 @@ namespace winrt::TerminalApp::implementation
                 }
                 if (const auto page = weakThis.get())
                 {
-                    if (const auto splitter = sender.template as<WUX::Controls::Border>();
-                        const auto visual = splitter.Child().try_as<WUX::Controls::Border>())
+                    if (const auto splitter = sender.template as<WUX::Controls::Button>();
+                        const auto visual = splitter.Content().try_as<WUX::Controls::Border>())
                     {
                         visual.Background(page->_paneResources.focusedBorderBrush);
                     }
@@ -492,51 +500,100 @@ namespace winrt::TerminalApp::implementation
                 }
                 if (const auto page = weakThis.get())
                 {
-                    if (const auto splitter = sender.template as<WUX::Controls::Border>();
-                        const auto visual = splitter.Child().try_as<WUX::Controls::Border>())
+                    if (const auto splitter = sender.template as<WUX::Controls::Button>();
+                        const auto visual = splitter.Content().try_as<WUX::Controls::Border>())
                     {
                         visual.Background(page->_paneResources.unfocusedBorderBrush);
                     }
                 }
             });
-            _tabStripSplitter.PointerPressed([weakThis{ get_weak() }](const auto& sender, const WUX::Input::PointerRoutedEventArgs& args) {
-                if (auto page{ weakThis.get() })
-                {
-                    auto border = sender.template as<WUX::Controls::Border>();
-                    border.CapturePointer(args.Pointer());
-                    page->_splitterDragging = true;
-                    page->_splitterDragStartX = args.GetCurrentPoint(page->Root()).Position().X;
-                    // Find the tab strip column width
-                    auto tabStripColIdx = (page->_tabPosition == TabPosition::Left) ? 0u : 2u;
-                    page->_splitterDragStartWidth = page->Root().ColumnDefinitions().GetAt(tabStripColIdx).ActualWidth();
-                    args.Handled(true);
-                }
-            });
+            _tabStripSplitter.AddHandler(
+                WUX::UIElement::PointerPressedEvent(),
+                WUX::Input::PointerEventHandler{ [weakThis{ get_weak() }](const auto& sender, const WUX::Input::PointerRoutedEventArgs& args) {
+                    if (auto page{ weakThis.get() })
+                    {
+                        const auto button = sender.template as<WUX::Controls::Button>();
+                        if (!args.GetCurrentPoint(button).Properties().IsLeftButtonPressed())
+                        {
+                            return;
+                        }
+                        if (page->_splitterPointerId)
+                        {
+                            return;
+                        }
+                        if (!button.CapturePointer(args.Pointer()))
+                        {
+                            return;
+                        }
+                        page->_splitterDragging = true;
+                        page->_splitterPointerId = args.Pointer().PointerId();
+                        page->_splitterDragStartX = args.GetCurrentPoint(page->Root()).Position().X;
+                        // Find the tab strip column width
+                        auto tabStripColIdx = (page->_tabPosition == TabPosition::Left) ? 0u : 2u;
+                        page->_splitterDragStartWidth = page->Root().ColumnDefinitions().GetAt(tabStripColIdx).ActualWidth();
+                        args.Handled(true);
+                    }
+                } }.as<IInspectable>(),
+                true);
             _tabStripSplitter.PointerMoved([weakThis{ get_weak() }](const auto& /*sender*/, const WUX::Input::PointerRoutedEventArgs& args) {
                 if (auto page{ weakThis.get() })
                 {
-                    if (!page->_splitterDragging)
+                    if (!page->_splitterDragging ||
+                        !page->_splitterPointerId ||
+                        *page->_splitterPointerId != args.Pointer().PointerId())
+                    {
                         return;
+                    }
                     auto currentX = args.GetCurrentPoint(page->Root()).Position().X;
                     auto delta = currentX - page->_splitterDragStartX;
-                    auto tabStripColIdx = (page->_tabPosition == TabPosition::Left) ? 0u : 2u;
                     auto newWidth = (page->_tabPosition == TabPosition::Left) ? (page->_splitterDragStartWidth + delta) : (page->_splitterDragStartWidth - delta);
-                    newWidth = std::clamp(newWidth, 100.0, 400.0);
-                    page->_tabStripWidth = newWidth;
-                    page->Root().ColumnDefinitions().GetAt(tabStripColIdx).Width(WUX::GridLengthHelper::FromPixels(newWidth));
+                    page->_SetTabStripWidth(newWidth);
                     args.Handled(true);
                 }
             });
-            _tabStripSplitter.PointerReleased([weakThis{ get_weak() }](const auto& sender, const WUX::Input::PointerRoutedEventArgs& args) {
-                if (auto page{ weakThis.get() })
-                {
-                    if (page->_splitterDragging)
+            _tabStripSplitter.AddHandler(
+                WUX::UIElement::PointerReleasedEvent(),
+                WUX::Input::PointerEventHandler{ [weakThis{ get_weak() }](const auto& sender, const WUX::Input::PointerRoutedEventArgs& args) {
+                    if (auto page{ weakThis.get() })
                     {
-                        page->_splitterDragging = false;
-                        auto border = sender.template as<WUX::Controls::Border>();
-                        border.ReleasePointerCapture(args.Pointer());
-                        args.Handled(true);
+                        if (page->_splitterDragging &&
+                            page->_splitterPointerId &&
+                            *page->_splitterPointerId == args.Pointer().PointerId())
+                        {
+                            page->_EndTabStripResize();
+                            auto button = sender.template as<WUX::Controls::Button>();
+                            button.ReleasePointerCapture(args.Pointer());
+                            args.Handled(true);
+                        }
                     }
+                } }.as<IInspectable>(),
+                true);
+            _tabStripSplitter.PointerCaptureLost([weakThis{ get_weak() }](const auto&, const WUX::Input::PointerRoutedEventArgs& args) {
+                if (const auto page = weakThis.get())
+                {
+                    if (page->_splitterPointerId && *page->_splitterPointerId == args.Pointer().PointerId())
+                    {
+                        page->_EndTabStripResize();
+                    }
+                }
+            });
+            _tabStripSplitter.PointerCanceled([weakThis{ get_weak() }](const auto&, const WUX::Input::PointerRoutedEventArgs& args) {
+                if (const auto page = weakThis.get())
+                {
+                    if (page->_splitterPointerId && *page->_splitterPointerId == args.Pointer().PointerId())
+                    {
+                        page->_EndTabStripResize();
+                    }
+                }
+            });
+            _tabStripSplitter.KeyDown([weakThis{ get_weak() }](const auto&, const WUX::Input::KeyRoutedEventArgs& args) {
+                if (const auto page = weakThis.get())
+                {
+                    if (!page->_ResizeTabStripForKey(args.Key()))
+                    {
+                        return;
+                    }
+                    args.Handled(true);
                 }
             });
 
@@ -652,6 +709,47 @@ namespace winrt::TerminalApp::implementation
             }
             break;
         }
+        }
+    }
+
+    bool TerminalPage::_ResizeTabStripForKey(const Windows::System::VirtualKey key)
+    {
+        if (key != Windows::System::VirtualKey::Left && key != Windows::System::VirtualKey::Right)
+        {
+            return false;
+        }
+
+        const auto growsTowardRight = _tabPosition == TabPosition::Left;
+        const auto grow = (key == Windows::System::VirtualKey::Right) == growsTowardRight;
+        _SetTabStripWidth(_tabStripWidth + (grow ? TabStripKeyboardResizeStep : -TabStripKeyboardResizeStep));
+        return true;
+    }
+
+    void TerminalPage::_EndTabStripResize() noexcept
+    {
+        _splitterDragging = false;
+        _splitterPointerId.reset();
+    }
+
+    void TerminalPage::_SetTabStripWidth(const double width)
+    {
+        const auto clampedWidth = std::clamp(width, TabStripMinWidth, TabStripMaxWidth);
+        if (_tabStripWidth == clampedWidth)
+        {
+            return;
+        }
+
+        _tabStripWidth = clampedWidth;
+        const auto tabStripColIdx = _tabPosition == TabPosition::Left ? 0u : 2u;
+        Root().ColumnDefinitions().GetAt(tabStripColIdx).Width(WUX::GridLengthHelper::FromPixels(_tabStripWidth));
+        if (_tabStripSplitter)
+        {
+            const auto statusWidth = gsl::narrow_cast<uint32_t>(_tabStripWidth);
+            if (_tabStripStatusWidth != statusWidth)
+            {
+                _tabStripStatusWidth = statusWidth;
+                Automation::AutomationProperties::SetItemStatus(_tabStripSplitter, RS_fmt(L"TabStripResizeHandleWidth", statusWidth));
+            }
         }
     }
 
@@ -5536,7 +5634,7 @@ namespace winrt::TerminalApp::implementation
         if (_tabStripSplitter)
         {
             _tabStripSplitter.Background(_paneResources.unfocusedBorderBrush);
-            if (const auto splitterVisual = _tabStripSplitter.Child().try_as<WUX::Controls::Border>())
+            if (const auto splitterVisual = _tabStripSplitter.Content().try_as<WUX::Controls::Border>())
             {
                 splitterVisual.Background(_paneResources.unfocusedBorderBrush);
             }

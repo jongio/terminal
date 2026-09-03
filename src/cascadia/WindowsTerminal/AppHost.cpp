@@ -51,9 +51,7 @@ AppHost::AppHost(WindowEmperor* manager, const winrt::TerminalApp::AppLogic& log
     _HandleCommandlineArgs(args);
 
     // _HandleCommandlineArgs will create a _windowLogic
-    const auto tabPos = _windowLogic.GetTabPosition();
-    _useNonClientArea = (tabPos == winrt::Microsoft::Terminal::Settings::Model::TabPosition::Top) &&
-                        _windowLogic.GetShowTabsInTitlebar();
+    _useNonClientArea = _windowLogic.GetShowTabsInTitlebar();
 
     if (_useNonClientArea)
     {

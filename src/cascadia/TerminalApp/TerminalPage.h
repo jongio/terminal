@@ -224,7 +224,8 @@ namespace winrt::TerminalApp::implementation
         void SendContentToOther(winrt::TerminalApp::RequestReceiveContentArgs args);
 
         uint32_t NumberOfTabs() const;
-        double TabStripWidth() const noexcept { return _tabStripWidth + 4.0; }
+        double TabStripWidth() const noexcept { return _tabStripWidth + TabStripLayoutGutterWidth; }
+        static constexpr double DefaultTabStripWidth() noexcept { return TabStripDefaultWidth + TabStripLayoutGutterWidth; }
 
         til::property_changed_event PropertyChanged;
 
@@ -285,7 +286,7 @@ namespace winrt::TerminalApp::implementation
         winrt::TerminalApp::ColorPickupFlyout _tabColorPicker{ nullptr };
 
         Microsoft::Terminal::Settings::Model::TabPosition _tabPosition{ Microsoft::Terminal::Settings::Model::TabPosition::Top };
-        Windows::UI::Xaml::Controls::Border _tabStripSplitter{ nullptr };
+        Windows::UI::Xaml::Controls::Button _tabStripSplitter{ nullptr };
 
         Microsoft::Terminal::Settings::Model::CascadiaSettings _settings{ nullptr };
 
@@ -303,11 +304,23 @@ namespace winrt::TerminalApp::implementation
         bool _isAlwaysOnTop{ false };
         bool _showTabsFullscreen{ false };
 
+        static constexpr double TabStripMinWidth = 100.0;
+        static constexpr double TabStripMaxWidth = 400.0;
+        static constexpr double TabStripDefaultWidth = 200.0;
+        static constexpr double TabStripLayoutGutterWidth = 4.0;
+        static constexpr double TabStripResizeHandleWidth = 12.0;
+        static constexpr double TabStripKeyboardResizeStep = 10.0;
+
         // Splitter drag state for left/right tab positions
         bool _splitterDragging{ false };
         double _splitterDragStartX{ 0.0 };
         double _splitterDragStartWidth{ 0.0 };
-        double _tabStripWidth{ 200.0 };
+        double _tabStripWidth{ TabStripDefaultWidth };
+        std::optional<uint32_t> _splitterPointerId;
+        std::optional<uint32_t> _tabStripStatusWidth;
+        void _SetTabStripWidth(double width);
+        bool _ResizeTabStripForKey(Windows::System::VirtualKey key);
+        void _EndTabStripResize() noexcept;
 
         std::optional<uint32_t> _loadFromPersistedLayoutIdx{};
 

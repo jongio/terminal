@@ -382,6 +382,16 @@ namespace SettingsModelUnitTests
         VERIFY_ARE_EQUAL(60, settings->WindowSettingsDefaults().InitialRows());
         VERIFY_ARE_EQUAL(false, settings->WindowSettingsDefaults().ShowTabsInTitlebar());
         VERIFY_ARE_EQUAL(TabPosition::Left, settings->WindowSettingsDefaults().TabPosition());
+
+        static constexpr std::string_view topSettings{ R"({ "tabPosition": "top", "profiles": [{ "name": "profile" }] })" };
+        static constexpr std::string_view bottomSettings{ R"({ "tabPosition": "bottom", "profiles": [{ "name": "profile" }] })" };
+        static constexpr std::string_view rightSettings{ R"({ "tabPosition": "right", "profiles": [{ "name": "profile" }] })" };
+        static constexpr std::string_view defaultSettings{ R"({ "profiles": [{ "name": "profile" }] })" };
+
+        VERIFY_ARE_EQUAL(TabPosition::Top, createSettings(topSettings)->WindowSettingsDefaults().TabPosition());
+        VERIFY_ARE_EQUAL(TabPosition::Bottom, createSettings(bottomSettings)->WindowSettingsDefaults().TabPosition());
+        VERIFY_ARE_EQUAL(TabPosition::Right, createSettings(rightSettings)->WindowSettingsDefaults().TabPosition());
+        VERIFY_ARE_EQUAL(TabPosition::Top, createSettings(defaultSettings)->WindowSettingsDefaults().TabPosition());
     }
 
     void DeserializationTests::ValidateProfileOrdering()

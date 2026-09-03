@@ -283,13 +283,8 @@ namespace winrt::TerminalApp::implementation
 
     bool TerminalWindow::GetShowTabsInTitlebar()
     {
-        return GetTabPosition() == Microsoft::Terminal::Settings::Model::TabPosition::Top &&
+        return _tabPosition == Microsoft::Terminal::Settings::Model::TabPosition::Top &&
                _currentWindowSettings().ShowTabsInTitlebar();
-    }
-
-    Microsoft::Terminal::Settings::Model::TabPosition TerminalWindow::GetTabPosition()
-    {
-        return _tabPosition;
     }
 
     bool TerminalWindow::GetInitialAlwaysOnTop()
@@ -614,12 +609,10 @@ namespace winrt::TerminalApp::implementation
         // GH#2061 - If the global setting "Always show tab bar" is
         // set or if "Show tabs in title bar" is set, then we'll need to add
         // the height of the tab bar here.
-        const auto tabPosition = GetTabPosition();
-        const auto tabsAlwaysVisible = _currentWindowSettings().ShowTabsInTitlebar() ||
+        const auto tabPosition = _tabPosition;
+        const auto tabsAlwaysVisible = GetShowTabsInTitlebar() ||
                                        _currentWindowSettings().AlwaysShowTabs();
-        if (tabPosition == Microsoft::Terminal::Settings::Model::TabPosition::Top &&
-            _currentWindowSettings().ShowTabsInTitlebar() &&
-            !focusMode)
+        if (GetShowTabsInTitlebar() && !focusMode)
         {
             // In the past, we used to actually instantiate a TitlebarControl
             // and use Measure() to determine the DesiredSize of the control, to
@@ -648,8 +641,7 @@ namespace winrt::TerminalApp::implementation
             if (tabPosition == Microsoft::Terminal::Settings::Model::TabPosition::Left ||
                 tabPosition == Microsoft::Terminal::Settings::Model::TabPosition::Right)
             {
-                static constexpr auto tabStripWidth = 204;
-                proposedSize.Width += tabStripWidth * scale;
+                proposedSize.Width += static_cast<float>(TerminalPage::DefaultTabStripWidth()) * scale;
             }
             else
             {
@@ -1345,8 +1337,8 @@ namespace winrt::TerminalApp::implementation
 
         if (!FocusMode())
         {
-            const auto tabPosition = GetTabPosition();
-            const auto tabsAlwaysVisible = _currentWindowSettings().ShowTabsInTitlebar() ||
+            const auto tabPosition = _tabPosition;
+            const auto tabsAlwaysVisible = GetShowTabsInTitlebar() ||
                                            _currentWindowSettings().AlwaysShowTabs();
             if (!tabsAlwaysVisible)
             {
@@ -1359,7 +1351,7 @@ namespace winrt::TerminalApp::implementation
                 if (tabPosition == Microsoft::Terminal::Settings::Model::TabPosition::Left ||
                     tabPosition == Microsoft::Terminal::Settings::Model::TabPosition::Right)
                 {
-                    const auto tabStripWidth = _root ? _root->TabStripWidth() : 204.0;
+                    const auto tabStripWidth = _root ? _root->TabStripWidth() : TerminalPage::DefaultTabStripWidth();
                     pixelSize.Width += static_cast<float>(tabStripWidth) * scale;
                 }
                 else

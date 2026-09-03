@@ -46,6 +46,35 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
         }
     }
 
+    Windows::Foundation::Collections::IObservableVector<Editor::EnumEntry> GlobalAppearanceViewModel::TabPositionList()
+    {
+        return _TabPositionList;
+    }
+
+    Windows::Foundation::IInspectable GlobalAppearanceViewModel::CurrentTabPosition()
+    {
+        return box_value<Editor::EnumEntry>(_TabPositionMap.Lookup(_WindowSettings.TabPosition()));
+    }
+
+    void GlobalAppearanceViewModel::CurrentTabPosition(const Windows::Foundation::IInspectable& enumEntry)
+    {
+        if (const auto entry = enumEntry.try_as<Editor::EnumEntry>())
+        {
+            _WindowSettings.TabPosition(unbox_value<Model::TabPosition>(entry.EnumValue()));
+            _NotifyChanges(L"CurrentTabPosition");
+        }
+    }
+
+    bool GlobalAppearanceViewModel::IsAlwaysShowTabsEnabled(const bool showTabsInTitlebar,
+                                                            const Windows::Foundation::IInspectable& tabPosition)
+    {
+        if (const auto entry = tabPosition.try_as<Editor::EnumEntry>())
+        {
+            return !showTabsInTitlebar || unbox_value<Model::TabPosition>(entry.EnumValue()) != Model::TabPosition::Top;
+        }
+        return !showTabsInTitlebar;
+    }
+
     winrt::Windows::Foundation::IInspectable GlobalAppearanceViewModel::CurrentTheme()
     {
         return _GlobalSettings.CurrentTheme(_WindowSettings);

@@ -74,7 +74,7 @@
         <!--  Always show tabs  -->
         <local:SettingsCard x:Name="AlwaysShowTabs"
                             x:Uid="Globals_AlwaysShowTabs"
-                            IsEnabled="{x:Bind mtu:Converters.InvertBoolean(ViewModel.ShowTabsInTitlebar), Mode=OneWay}">
+                            IsEnabled="{x:Bind ViewModel.IsAlwaysShowTabsEnabled(ViewModel.ShowTabsInTitlebar, ViewModel.CurrentTabPosition), Mode=OneWay}">
             <ToggleSwitch IsOn="{x:Bind ViewModel.AlwaysShowTabs, Mode=TwoWay}"
                           Style="{StaticResource ToggleSwitchInExpanderStyle}" />
         </local:SettingsCard>

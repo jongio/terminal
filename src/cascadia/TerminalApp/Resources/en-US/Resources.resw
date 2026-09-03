@@ -446,6 +446,19 @@
     <value>New tab</value>
     <comment>Label for the new tab button in vertical tab strip mode.</comment>
   </data>
+  <data name="TabStripResizeHandleName" xml:space="preserve">
+    <value>Resize tab strip</value>
+  </data>
+  <data name="TabStripResizeHandleHelpText" xml:space="preserve">
+    <value>Drag or use the Left and Right Arrow keys to resize the tab strip.</value>
+  </data>
+  <data name="TabStripResizeHandleControlType" xml:space="preserve">
+    <value>resize handle</value>
+  </data>
+  <data name="TabStripResizeHandleWidth" xml:space="preserve">
+    <value>Tab strip width: {0} pixels</value>
+    <comment>{0} is the current tab strip width in device-independent pixels.</comment>
+  </data>
   <data name="NewPaneRun.Text" xml:space="preserve">
     <value>Alt+Click to split the current window</value>
   </data>

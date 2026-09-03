@@ -19,8 +19,13 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
 
         WINRT_PROPERTY(Windows::Foundation::Collections::IObservableVector<Model::Theme>, ThemeList, nullptr);
         GETSET_BINDABLE_ENUM_SETTING(NewTabPosition, Model::NewTabPosition, _WindowSettings.NewTabPosition);
-        GETSET_BINDABLE_ENUM_SETTING(TabPosition, Model::TabPosition, _WindowSettings.TabPosition);
         GETSET_BINDABLE_ENUM_SETTING(TabWidthMode, winrt::Microsoft::UI::Xaml::Controls::TabViewWidthMode, _WindowSettings.TabWidthMode);
+
+    public:
+        Windows::Foundation::Collections::IObservableVector<Editor::EnumEntry> TabPositionList();
+        Windows::Foundation::IInspectable CurrentTabPosition();
+        void CurrentTabPosition(const Windows::Foundation::IInspectable& enumEntry);
+        bool IsAlwaysShowTabsEnabled(bool showTabsInTitlebar, const Windows::Foundation::IInspectable& tabPosition);
 
     public:
         winrt::Windows::Foundation::IInspectable CurrentTheme();
@@ -48,6 +53,8 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
         Model::GlobalAppSettings _GlobalSettings;
         Model::WindowSettings _WindowSettings;
         winrt::Windows::Foundation::IInspectable _currentTheme;
+        Windows::Foundation::Collections::IObservableVector<Editor::EnumEntry> _TabPositionList;
+        Windows::Foundation::Collections::IMap<Model::TabPosition, Editor::EnumEntry> _TabPositionMap;
 
         void _UpdateThemeList();
     };

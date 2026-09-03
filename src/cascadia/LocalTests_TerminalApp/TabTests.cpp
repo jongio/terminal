@@ -76,6 +76,7 @@ namespace TerminalAppLocalTests
 
         TEST_METHOD(CreateTerminalPage);
         TEST_METHOD(TabPositionReloadRequiresRelaunch);
+        TEST_METHOD(VerticalTabPositionCreatesSidebar);
 
         TEST_METHOD(TryDuplicateBadTab);
         TEST_METHOD(TryDuplicateBadPane);
@@ -111,7 +112,7 @@ namespace TerminalAppLocalTests
     private:
         void _initializeTerminalPage(winrt::com_ptr<winrt::TerminalApp::implementation::TerminalPage>& page,
                                      CascadiaSettings initialSettings);
-        winrt::com_ptr<winrt::TerminalApp::implementation::TerminalPage> _commonSetup();
+        winrt::com_ptr<winrt::TerminalApp::implementation::TerminalPage> _commonSetup(TabPosition tabPosition = TabPosition::Top);
         winrt::com_ptr<winrt::TerminalApp::implementation::WindowProperties> _windowProperties;
         winrt::com_ptr<winrt::TerminalApp::implementation::ContentManager> _contentManager;
     };
@@ -229,6 +230,69 @@ namespace TerminalAppLocalTests
             VERIFY_ARE_EQUAL(3u, page->Root().RowDefinitions().Size());
             VERIFY_ARE_EQUAL(0u, page->Root().ColumnDefinitions().Size());
             VERIFY_ARE_EQUAL(0, Grid::GetRow(page->_tabRow));
+        });
+    }
+
+    void TabTests::VerticalTabPositionCreatesSidebar()
+    {
+        for (const auto position : { TabPosition::Left, TabPosition::Right })
+        {
+            const auto page = _commonSetup(position);
+
+            TestOnUIThread([&]() {
+                VERIFY_ARE_EQUAL(position, page->_tabPosition);
+                VERIFY_ARE_EQUAL(3u, page->Root().ColumnDefinitions().Size());
+                VERIFY_IS_NOT_NULL(page->_tabStripSplitter);
+                VERIFY_ARE_EQUAL(L"Resize tab strip", Automation::AutomationProperties::GetName(page->_tabStripSplitter));
+                VERIFY_ARE_EQUAL(12.0, page->_tabStripSplitter.Width());
+                VERIFY_ARE_EQUAL(-4.0, page->_tabStripSplitter.Margin().Left);
+                VERIFY_ARE_EQUAL(-4.0, page->_tabStripSplitter.Margin().Right);
+                const winrt::Windows::UI::Color opaqueBlack{ 255, 0, 0, 0 };
+                VERIFY_ARE_EQUAL(opaqueBlack, page->_tabStripSplitter.Background().as<Media::SolidColorBrush>().Color());
+                VERIFY_ARE_EQUAL(position == TabPosition::Left ? 0 : 2, Grid::GetColumn(page->_tabRow));
+                VERIFY_ARE_EQUAL(HorizontalAlignment::Stretch, page->_newTabButton.HorizontalAlignment());
+
+                const auto tabStripColumn = position == TabPosition::Left ? 0u : 2u;
+                page->_SetTabStripWidth(50);
+                VERIFY_ARE_EQUAL(100.0, page->_tabStripWidth);
+                VERIFY_ARE_EQUAL(100.0, page->Root().ColumnDefinitions().GetAt(tabStripColumn).Width().Value);
+
+                page->_SetTabStripWidth(450);
+                VERIFY_ARE_EQUAL(400.0, page->_tabStripWidth);
+                VERIFY_ARE_EQUAL(400.0, page->Root().ColumnDefinitions().GetAt(tabStripColumn).Width().Value);
+
+                page->_SetTabStripWidth(200);
+                VERIFY_IS_TRUE(page->_ResizeTabStripForKey(VirtualKey::Right));
+                VERIFY_ARE_EQUAL(position == TabPosition::Left ? 210.0 : 190.0, page->_tabStripWidth);
+                VERIFY_IS_FALSE(page->_ResizeTabStripForKey(VirtualKey::Enter));
+
+                page->_splitterDragging = true;
+                page->_splitterPointerId = 1;
+                page->_EndTabStripResize();
+                VERIFY_IS_FALSE(page->_splitterDragging);
+                VERIFY_IS_FALSE(page->_splitterPointerId.has_value());
+
+                page->_settings.WindowSettingsDefaults().ShowTabsInTitlebar(true);
+                page->_settings.WindowSettingsDefaults().AlwaysShowTabs(false);
+                page->_UpdateTabView();
+                VERIFY_ARE_EQUAL(0.0, page->Root().ColumnDefinitions().GetAt(tabStripColumn).MinWidth());
+                VERIFY_ARE_EQUAL(0.0, page->Root().ColumnDefinitions().GetAt(tabStripColumn).Width().Value);
+                VERIFY_ARE_EQUAL(Visibility::Collapsed, page->_tabStripSplitter.Visibility());
+
+                page->_settings.WindowSettingsDefaults().AlwaysShowTabs(true);
+                page->_UpdateTabView();
+                VERIFY_ARE_EQUAL(100.0, page->Root().ColumnDefinitions().GetAt(tabStripColumn).MinWidth());
+                VERIFY_ARE_EQUAL(page->_tabStripWidth, page->Root().ColumnDefinitions().GetAt(tabStripColumn).Width().Value);
+                VERIFY_ARE_EQUAL(Visibility::Visible, page->_tabStripSplitter.Visibility());
+            });
+        }
+
+        const auto bottomPage = _commonSetup(TabPosition::Bottom);
+        TestOnUIThread([&]() {
+            VERIFY_ARE_EQUAL(TabPosition::Bottom, bottomPage->_tabPosition);
+            VERIFY_ARE_EQUAL(3u, bottomPage->Root().RowDefinitions().Size());
+            VERIFY_ARE_EQUAL(2, Grid::GetRow(bottomPage->_tabRow));
+            VERIFY_ARE_EQUAL(0u, bottomPage->Root().ColumnDefinitions().Size());
         });
     }
 
@@ -599,7 +663,7 @@ namespace TerminalAppLocalTests
     // - <none>
     // Return Value:
     // - The initialized TerminalPage, ready to use.
-    winrt::com_ptr<winrt::TerminalApp::implementation::TerminalPage> TabTests::_commonSetup()
+    winrt::com_ptr<winrt::TerminalApp::implementation::TerminalPage> TabTests::_commonSetup(const TabPosition tabPosition)
     {
         static constexpr std::wstring_view settingsJson0{ LR"(
         {
@@ -708,6 +772,7 @@ namespace TerminalAppLocalTests
 
         CascadiaSettings settings0{ settingsJson0, {} };
         VERIFY_IS_NOT_NULL(settings0);
+        settings0.WindowSettingsDefaults().TabPosition(tabPosition);
 
         const auto guid1 = Microsoft::Console::Utils::GuidFromString(L"{6239a42c-1111-49a3-80bd-e8fdd045185c}");
         const auto guid2 = Microsoft::Console::Utils::GuidFromString(L"{6239a42c-2222-49a3-80bd-e8fdd045185c}");
