@@ -65,6 +65,10 @@
       <Type>DefaultStyle</Type>
       <SubType>Designer</SubType>
     </Page>
+    <Page Include="VerticalTabViewStyle.xaml">
+      <Type>DefaultStyle</Type>
+      <SubType>Designer</SubType>
+    </Page>
     <Page Include="ColorPickupFlyout.xaml">
       <SubType>Designer</SubType>
     </Page>
@@ -100,6 +104,8 @@
       <SubType>Code</SubType>
     </ClInclude>
     <ClInclude Include="BasePaletteItem.h" />
+    <ClInclude Include="CopilotActivity.h" />
+    <ClInclude Include="CopilotProcessTracker.h" />
     <ClInclude Include="Tab.h">
       <DependentUpon>Tab.idl</DependentUpon>
     </ClInclude>
@@ -190,6 +196,8 @@
     <ClCompile Include="AppCommandlineArgs.cpp" />
     <ClCompile Include="Commandline.cpp" />
     <ClCompile Include="CommandPaletteItems.cpp" />
+    <ClCompile Include="CopilotActivity.cpp" />
+    <ClCompile Include="CopilotProcessTracker.cpp" />
     <ClCompile Include="Jumplist.cpp" />
     <ClCompile Include="LanguageProfileNotifier.cpp" />
     <ClCompile Include="MinMaxCloseControl.cpp">

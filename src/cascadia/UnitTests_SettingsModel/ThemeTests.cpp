@@ -265,4 +265,5 @@ namespace SettingsModelUnitTests
             throw e;
         }
     }
+
 }

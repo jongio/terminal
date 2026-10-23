@@ -27,7 +27,8 @@ Author(s):
     X(bool, AlwaysShowNotificationIcon, "alwaysShowNotificationIcon", false)                                                       \
     X(winrt::Windows::Foundation::Collections::IVector<winrt::hstring>, DisabledProfileSources, "disabledProfileSources", nullptr) \
     X(bool, AllowHeadless, "compatibility.allowHeadless", false)                                                                   \
-    X(bool, EnableColorSelection, "experimental.enableColorSelection", false)
+    X(bool, EnableColorSelection, "experimental.enableColorSelection", false)                                                      \
+    X(bool, DetectCopilotActivity, "experimental.detectCopilotActivity", false)
 
 // Settings that are per-window (may vary by window name in the future)
 #define MTSM_WINDOW_SETTINGS(X)                                                                                                                                                                       \
@@ -49,6 +50,7 @@ Author(s):
     X(bool, DetectURLs, "experimental.detectURLs", true)                                                                                                                                              \
     X(bool, AlwaysShowTabs, "alwaysShowTabs", true)                                                                                                                                                   \
     X(Model::NewTabPosition, NewTabPosition, "newTabPosition", Model::NewTabPosition::AfterLastTab)                                                                                                   \
+    X(Model::TabPosition, TabPosition, "tabPosition", Model::TabPosition::Top)                                                                                                                         \
     X(bool, ShowTitleInTitlebar, "showTerminalTitleInTitlebar", true)                                                                                                                                 \
     X(Model::ConfirmOnClose, ConfirmOnClose, "warning.confirmOnClose", Model::ConfirmOnClose::Automatic)                                                                                              \
     X(Model::ThemePair, Theme, "theme")                                                                                                                                                               \

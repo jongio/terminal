@@ -6,6 +6,7 @@
 #include "ColorPickupFlyout.h"
 #include "Tab.h"
 #include "Tab.g.h"
+#include "CopilotActivity.h"
 
 // fwdecl unittest classes
 namespace TerminalAppLocalTests
@@ -195,6 +196,7 @@ namespace winrt::TerminalApp::implementation
             winrt::Microsoft::Terminal::Control::TermControl::StringSent_revoker StringSent;
 
             winrt::TerminalApp::TerminalPaneContent::RestartTerminalRequested_revoker RestartTerminalRequested;
+            winrt::TerminalApp::TerminalPaneContent::CopilotActivityChanged_revoker CopilotActivityChanged;
         };
         std::unordered_map<uint32_t, ContentEventTokens> _contentEvents;
 
@@ -233,6 +235,7 @@ namespace winrt::TerminalApp::implementation
         void _RecalculateAndApplyReadOnly();
 
         void _UpdateProgressState();
+        void _UpdateCopilotActivityState();
 
         void _UpdateConnectionClosedState();
         void _RestartActivePaneConnection();

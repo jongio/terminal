@@ -28,6 +28,8 @@ namespace winrt::TerminalApp::implementation
         _profile{ profile }
     {
         _setupControlEvents();
+        _copilotWorkingLeaseTimer.Interval(CopilotPaneActivity::WorkingLeaseDuration);
+        _copilotWorkingLeaseTimer.Tick({ get_weak(), &TerminalPaneContent::_copilotWorkingLeaseExpired });
     }
 
     void TerminalPaneContent::_setupControlEvents()
@@ -67,6 +69,8 @@ namespace winrt::TerminalApp::implementation
     }
     void TerminalPaneContent::Close()
     {
+        _resetCopilotActivity();
+
         // We deliberately remove the event handlers before closing the control.
         // This is to prevent reentrancy issues, pointless callbacks, etc.
         _removeControlEvents();
@@ -160,6 +164,8 @@ namespace winrt::TerminalApp::implementation
     }
     void TerminalPaneContent::_controlSetTaskbarProgress(const IInspectable&, const IInspectable&)
     {
+        const auto transition = _copilotEventState->CaptureProgress(_control.TaskbarState());
+        _queueCopilotProgress(transition);
         TaskbarProgressChanged.raise(*this, nullptr);
     }
     void TerminalPaneContent::_controlReadOnlyChanged(const IInspectable&, const IInspectable&)
@@ -173,6 +179,7 @@ namespace winrt::TerminalApp::implementation
 
     void TerminalPaneContent::_controlShowNotification(const IInspectable& /*sender*/, const ShowNotificationEventArgs& args)
     {
+        _queueCopilotAttention(_copilotEventState->CaptureAttention());
         NotificationRequested.raise(*this, winrt::make<implementation::NotificationEventArgs>(args.Title(), args.Body()));
     }
 
@@ -197,8 +204,18 @@ namespace winrt::TerminalApp::implementation
         }
 
         const auto previousConnectionState = std::exchange(_connectionState, newConnectionState);
+        const auto copilotOrdering = _copilotEventState->CaptureOrdering();
         if (newConnectionState < ConnectionState::Closed)
         {
+            if (newConnectionState == ConnectionState::Connected)
+            {
+                const auto weakThis = get_weak();
+                co_await wil::resume_foreground(_control.Dispatcher());
+                if (const auto strongThis = weakThis.get())
+                {
+                    strongThis->_updateCopilotProcessRegistration();
+                }
+            }
             // Pane doesn't care if the connection isn't entering a terminal state.
             co_return;
         }
@@ -210,6 +227,8 @@ namespace winrt::TerminalApp::implementation
         {
             co_return;
         }
+
+        strongThis->_resetCopilotActivity(copilotOrdering);
 
         // It's possible that this event handler started being executed, scheduled
         // on the UI thread, another child got created. So our control is
@@ -258,6 +277,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPaneContent::_controlWarningBellHandler(const winrt::Windows::Foundation::IInspectable& /*sender*/,
                                                          const winrt::Windows::Foundation::IInspectable& /*eventArgs*/)
     {
+        _queueCopilotAttention(_copilotEventState->CaptureAttention());
+
         if (_profile)
         {
             // We don't want to do anything if nothing is set, so check for that first
@@ -304,6 +325,7 @@ namespace winrt::TerminalApp::implementation
     void TerminalPaneContent::_restartTerminalRequestedHandler(const winrt::Windows::Foundation::IInspectable& /*sender*/,
                                                                const winrt::Windows::Foundation::IInspectable& /*args*/)
     {
+        _resetCopilotActivity();
         RestartTerminalRequested.raise(*this, nullptr);
     }
 
@@ -313,10 +335,28 @@ namespace winrt::TerminalApp::implementation
         // Reload our profile from the settings model to propagate bell mode, icon, and close on exit mode (anything that uses _profile).
         const auto profile{ settings.FindProfile(_profile.Guid()) };
         _profile = profile ? profile : settings.ProfileDefaults();
+        const auto detectCopilotActivity = settings.GlobalSettings().DetectCopilotActivity();
+
+        if (_detectCopilotActivity && !detectCopilotActivity)
+        {
+            _detectCopilotActivity = false;
+            _resetCopilotActivity();
+        }
+        else if (!_detectCopilotActivity && detectCopilotActivity)
+        {
+            _copilotActivity.Reset(_copilotEventState->CaptureOrdering());
+            _detectCopilotActivity = true;
+            _publishCopilotActivity();
+        }
 
         if (const auto settings{ _cache->TryLookup(_profile) })
         {
             _control.UpdateControlSettings(settings->DefaultSettings(), settings->UnfocusedSettings());
+        }
+
+        if (_detectCopilotActivity)
+        {
+            _updateCopilotProcessRegistration();
         }
     }
 
@@ -327,6 +367,181 @@ namespace winrt::TerminalApp::implementation
     void TerminalPaneContent::MarkAsDefterm()
     {
         _isDefTermSession = true;
+    }
+
+    TerminalApp::CopilotActivityState TerminalPaneContent::CopilotActivityState() const noexcept
+    {
+        return _publishedCopilotActivity;
+    }
+
+    void TerminalPaneContent::SetCopilotPaneFocused(const bool focused)
+    {
+        _copilotActivity.SetFocused(_copilotEventState->SetFocused(focused));
+        _publishCopilotActivity();
+    }
+
+    void TerminalPaneContent::_copilotWorkingLeaseExpired(const IInspectable&, const IInspectable&)
+    {
+        _copilotWorkingLeaseTimer.Stop();
+        _copilotActivity.ExpireWorkingLease(CopilotPaneActivity::Clock::now());
+        if (_copilotActivity.HasActiveProgress())
+        {
+            _refreshCopilotWorkingLease();
+        }
+        _publishCopilotActivity();
+    }
+
+    void TerminalPaneContent::_applyCopilotProgress(const CopilotProgressTransition& transition)
+    {
+        if (!_detectCopilotActivity)
+        {
+            return;
+        }
+
+        if (!_copilotActivity.UpdateProgress(transition))
+        {
+            return;
+        }
+
+        _refreshCopilotWorkingLease();
+        _publishCopilotActivity();
+    }
+
+    void TerminalPaneContent::_refreshCopilotWorkingLease()
+    {
+        if (_copilotActivity.HasActiveProgress())
+        {
+            const auto now = CopilotPaneActivity::Clock::now();
+            const auto remaining = _copilotActivity.RemainingWorkingLease(now);
+            if (!remaining)
+            {
+                _copilotWorkingLeaseTimer.Stop();
+                return;
+            }
+
+            if (*remaining <= std::chrono::milliseconds::zero())
+            {
+                _copilotWorkingLeaseTimer.Stop();
+                _copilotActivity.ExpireWorkingLease(now);
+                _publishCopilotActivity();
+                return;
+            }
+
+            _copilotWorkingLeaseTimer.Stop();
+            _copilotWorkingLeaseTimer.Interval(winrt::Windows::Foundation::TimeSpan{ *remaining });
+            _copilotWorkingLeaseTimer.Start();
+        }
+        else
+        {
+            _copilotWorkingLeaseTimer.Stop();
+        }
+    }
+
+    void TerminalPaneContent::_queueCopilotAttention(const CopilotAttentionTransition& transition)
+    {
+        const auto weakThis = get_weak();
+        const auto dispatcher = _control.Dispatcher();
+        [weakThis, dispatcher, transition]() -> safe_void_coroutine {
+            co_await wil::resume_foreground(dispatcher);
+            if (const auto strongThis = weakThis.get(); strongThis && strongThis->_detectCopilotActivity)
+            {
+                const auto disposition = strongThis->_copilotActivity.UpdateAttention(transition);
+                strongThis->_publishCopilotActivity();
+                if (disposition == CopilotAttentionDisposition::Pending)
+                {
+                    CopilotProcessTracker::Instance().RequestImmediateSample();
+                }
+            }
+        }();
+    }
+
+    void TerminalPaneContent::_queueCopilotProgress(const CopilotProgressTransition& transition)
+    {
+        const auto weakThis = get_weak();
+        const auto dispatcher = _control.Dispatcher();
+        [weakThis, dispatcher, transition]() -> safe_void_coroutine {
+            co_await wil::resume_foreground(dispatcher);
+            if (const auto strongThis = weakThis.get())
+            {
+                strongThis->_applyCopilotProgress(transition);
+            }
+        }();
+    }
+
+    void TerminalPaneContent::_publishCopilotActivity()
+    {
+        const auto state = _detectCopilotActivity ? _copilotActivity.State() : TerminalApp::CopilotActivityState::None;
+        if (state != _publishedCopilotActivity)
+        {
+            _publishedCopilotActivity = state;
+            CopilotActivityChanged.raise(*this, nullptr);
+        }
+    }
+
+    void TerminalPaneContent::_resetCopilotActivity()
+    {
+        _resetCopilotActivity(_copilotEventState->CaptureOrdering());
+    }
+
+    void TerminalPaneContent::_resetCopilotActivity(const CopilotEventOrdering& ordering)
+    {
+        _copilotWorkingLeaseTimer.Stop();
+        _copilotProcessRegistration.Reset();
+        _copilotRootProcess = {};
+        ++_copilotRegistrationGeneration;
+        _copilotActivity.Reset(ordering);
+        _publishCopilotActivity();
+    }
+
+    void TerminalPaneContent::_updateCopilotProcessRegistration()
+    {
+        CopilotProcessIdentity rootProcess;
+        if (_detectCopilotActivity)
+        {
+            if (const auto connection = _control.Connection().try_as<ConptyConnection>())
+            {
+                rootProcess = {
+                    connection.RootProcessId(),
+                    connection.RootProcessCreationTime(),
+                };
+            }
+        }
+
+        if (rootProcess == _copilotRootProcess && static_cast<bool>(_copilotProcessRegistration) == (rootProcess.processId != 0))
+        {
+            return;
+        }
+
+        _copilotProcessRegistration.Reset();
+        _copilotRootProcess = rootProcess;
+        const auto registrationGeneration = ++_copilotRegistrationGeneration;
+        const auto ordering = _copilotEventState->CaptureOrdering();
+        _copilotActivity.Reset(ordering);
+        _refreshCopilotWorkingLease();
+        _publishCopilotActivity();
+
+        if (rootProcess.processId == 0)
+        {
+            return;
+        }
+
+        const auto weakThis = get_weak();
+        const auto dispatcher = _control.Dispatcher();
+        _copilotProcessRegistration = CopilotProcessTracker::Instance().Register(
+            rootProcess,
+            _copilotEventState,
+            [weakThis, dispatcher, registrationGeneration](CopilotProcessTransition transition) {
+                [weakThis, dispatcher, registrationGeneration, transition = std::move(transition)]() -> safe_void_coroutine {
+                    co_await wil::resume_foreground(dispatcher);
+                    if (const auto strongThis = weakThis.get();
+                        strongThis && strongThis->_copilotRegistrationGeneration == registrationGeneration)
+                    {
+                        strongThis->_copilotActivity.UpdateProcesses(transition);
+                        strongThis->_refreshCopilotWorkingLease();
+                        strongThis->_publishCopilotActivity();
+                    }
+                }();
+            });
     }
 
     winrt::Windows::UI::Xaml::Media::Brush TerminalPaneContent::BackgroundBrush()

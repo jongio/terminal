@@ -283,6 +283,9 @@ namespace winrt::TerminalApp::implementation
         Windows::UI::Xaml::Controls::Button _workspaceDropdown{ nullptr };
         winrt::TerminalApp::ColorPickupFlyout _tabColorPicker{ nullptr };
 
+        Microsoft::Terminal::Settings::Model::TabPosition _tabPosition{ Microsoft::Terminal::Settings::Model::TabPosition::Top };
+        Windows::UI::Xaml::Controls::Border _tabStripSplitter{ nullptr };
+
         Microsoft::Terminal::Settings::Model::CascadiaSettings _settings{ nullptr };
 
         Windows::Foundation::Collections::IObservableVector<TerminalApp::Tab> _tabs;
@@ -298,6 +301,11 @@ namespace winrt::TerminalApp::implementation
         bool _isMaximized{ false };
         bool _isAlwaysOnTop{ false };
         bool _showTabsFullscreen{ false };
+
+        // Splitter drag state for left/right tab positions
+        bool _splitterDragging{ false };
+        double _splitterDragStartX{ 0.0 };
+        double _splitterDragStartWidth{ 0.0 };
 
         std::optional<uint32_t> _loadFromPersistedLayoutIdx{};
 
@@ -400,6 +408,7 @@ namespace winrt::TerminalApp::implementation
         void _UpdateTabIcon(Tab& tab);
         void _UpdateTabView();
         void _UpdateTabWidthMode();
+        void _ApplyTabPosition();
         void _SetBackgroundImage(const winrt::Microsoft::Terminal::Settings::Model::IAppearanceConfig& newAppearance);
 
         void _DuplicateFocusedTab();

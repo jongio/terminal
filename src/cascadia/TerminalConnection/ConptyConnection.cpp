@@ -27,6 +27,19 @@ using namespace ::Microsoft::Console;
 
 namespace winrt::Microsoft::Terminal::TerminalConnection::implementation
 {
+    static uint64_t processCreationTime(const HANDLE process) noexcept
+    {
+        FILETIME created;
+        FILETIME exited;
+        FILETIME kernel;
+        FILETIME user;
+        if (process && GetProcessTimes(process, &created, &exited, &kernel, &user))
+        {
+            return (static_cast<uint64_t>(created.dwHighDateTime) << 32) | created.dwLowDateTime;
+        }
+        return 0;
+    }
+
     // Function Description:
     // - launches the client application attached to the new pseudoconsole
     void ConptyConnection::_LaunchAttachedClient()
@@ -175,6 +188,8 @@ namespace winrt::Microsoft::Terminal::TerminalConnection::implementation
             &siEx.StartupInfo, // lpStartupInfo
             &_piClient // lpProcessInformation
             ));
+        _rootProcessId = _piClient.dwProcessId;
+        _rootProcessCreationTime = processCreationTime(_piClient.hProcess);
 
         DeleteProcThreadAttributeList(siEx.lpAttributeList);
 
@@ -358,6 +373,8 @@ namespace winrt::Microsoft::Terminal::TerminalConnection::implementation
         ownedSignal.release();
 
         _piClient.hProcess = ownedClient.release();
+        _rootProcessId = GetProcessId(_piClient.hProcess);
+        _rootProcessCreationTime = processCreationTime(_piClient.hProcess);
 
         _startupInfo.title = winrt::hstring{ startupInfo->pszTitle, SysStringLen(startupInfo->pszTitle) };
         _startupInfo.iconPath = winrt::hstring{ startupInfo->pszIconPath, SysStringLen(startupInfo->pszIconPath) };
@@ -504,6 +521,8 @@ namespace winrt::Microsoft::Terminal::TerminalConnection::implementation
         }
 
         TerminalOutput.raise(winrt_wstring_to_array_view(failureText));
+        _rootProcessId = 0;
+        _rootProcessCreationTime = 0;
         _transitionToState(ConnectionState::Failed);
 
         // Tear down any state we may have accumulated.
@@ -541,6 +560,8 @@ namespace winrt::Microsoft::Terminal::TerminalConnection::implementation
         GetExitCodeProcess(_piClient.hProcess, &exitCode);
 
         _piClient.reset();
+        _rootProcessId = 0;
+        _rootProcessCreationTime = 0;
 
         // Signal the closing or failure of the process.
         // exitCode might be STILL_ACTIVE if a client has called FreeConsole() and
@@ -664,6 +685,16 @@ namespace winrt::Microsoft::Terminal::TerminalConnection::implementation
         return reinterpret_cast<uint64_t>(_piClient.hProcess);
     }
 
+    uint32_t ConptyConnection::RootProcessId() noexcept
+    {
+        return _rootProcessId;
+    }
+
+    uint64_t ConptyConnection::RootProcessCreationTime() noexcept
+    {
+        return _rootProcessCreationTime;
+    }
+
     void ConptyConnection::Close() noexcept
     try
     {
@@ -694,6 +725,8 @@ namespace winrt::Microsoft::Terminal::TerminalConnection::implementation
 
         _hOutputThread.reset();
         _piClient.reset();
+        _rootProcessId = 0;
+        _rootProcessCreationTime = 0;
         _pipe.reset();
 
         // The output thread should have already transitioned us to Closed.

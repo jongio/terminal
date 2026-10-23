@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
+import "IPaneContent.idl";
+
 namespace TerminalApp
 {
     [default_interface] runtimeclass TerminalTabStatus : Windows.UI.Xaml.Data.INotifyPropertyChanged
@@ -16,5 +18,10 @@ namespace TerminalApp
         Boolean IsReadOnlyActive { get; set; };
         Boolean IsInputBroadcastActive { get; set; };
         Windows.UI.Color TabColorIndicator { get; set; };
+        CopilotActivityState CopilotActivityState { get; set; };
+        UInt32 CopilotActivityPaneCount { get; set; };
+        String CopilotActivityGlyph { get; set; };
+        String CopilotActivityText { get; set; };
+        Windows.UI.Xaml.Visibility CopilotActivityVisibility { get; set; };
     }
 }

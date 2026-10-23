@@ -268,6 +268,30 @@
     <value>After the current tab</value>
     <comment>An option to choose from for the "Position of newly created tabs" setting. When selected new tab appears after the current tab.</comment>
   </data>
+  <data name="Globals_TabPosition.Header" xml:space="preserve">
+    <value>Tab position</value>
+    <comment>Header for a control that chooses which edge of the window contains the tab row.</comment>
+  </data>
+  <data name="Globals_TabPosition.Description" xml:space="preserve">
+    <value>Changes the position of the tab row for new windows.</value>
+    <comment>Description for the tab position setting. Existing windows may need to be reopened.</comment>
+  </data>
+  <data name="Globals_TabPositionTop.Content" xml:space="preserve">
+    <value>Top</value>
+    <comment>An option for placing the tab row at the top of the window.</comment>
+  </data>
+  <data name="Globals_TabPositionBottom.Content" xml:space="preserve">
+    <value>Bottom</value>
+    <comment>An option for placing the tab row at the bottom of the window.</comment>
+  </data>
+  <data name="Globals_TabPositionLeft.Content" xml:space="preserve">
+    <value>Left</value>
+    <comment>An option for placing the tab row on the left side of the window.</comment>
+  </data>
+  <data name="Globals_TabPositionRight.Content" xml:space="preserve">
+    <value>Right</value>
+    <comment>An option for placing the tab row on the right side of the window.</comment>
+  </data>
   <data name="Globals_CopyOnSelect.Header" xml:space="preserve">
     <value>Automatically copy selection to clipboard</value>
     <comment>Header for a control to toggle whether selected text should be copied to the clipboard automatically, or not.</comment>

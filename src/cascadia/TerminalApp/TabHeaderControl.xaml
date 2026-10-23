@@ -16,6 +16,14 @@
 
     <StackPanel x:Name="HeaderStackPanel"
                 Orientation="Horizontal">
+        <FontIcon x:Name="HeaderCopilotActivityIndicator"
+                  Margin="0,0,8,0"
+                  AutomationProperties.Name="{x:Bind TabStatus.CopilotActivityText, Mode=OneWay}"
+                  FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                  FontSize="12"
+                  Glyph="{x:Bind TabStatus.CopilotActivityGlyph, Mode=OneWay}"
+                  ToolTipService.ToolTip="{x:Bind TabStatus.CopilotActivityText, Mode=OneWay}"
+                  Visibility="{x:Bind TabStatus.CopilotActivityVisibility, Mode=OneWay}" />
         <mux:ProgressRing x:Name="HeaderProgressRing"
                           Width="15"
                           Height="15"

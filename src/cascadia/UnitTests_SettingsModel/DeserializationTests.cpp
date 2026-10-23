@@ -47,6 +47,7 @@ namespace SettingsModelUnitTests
         TEST_METHOD(ValidateExecuteCommandlineWarning);
         TEST_METHOD(TestClampingOfStartupColumnAndViewProperties);
         TEST_METHOD(TestTrailingCommas);
+        TEST_METHOD(TestCopilotActivitySetting);
         TEST_METHOD(TestCommandsAndKeybindings);
         TEST_METHOD(TestNestedCommandWithoutName);
         TEST_METHOD(TestNestedCommandWithBadSubCommands);
@@ -1291,6 +1292,18 @@ namespace SettingsModelUnitTests
         {
             VERIFY_IS_TRUE(false, L"This call to LayerJson should succeed, even with the trailing comma");
         }
+    }
+
+    void DeserializationTests::TestCopilotActivitySetting()
+    {
+        const auto disabled = createSettings(R"({ "profiles": [{ "name": "profile0" }] })");
+        VERIFY_IS_FALSE(disabled->GlobalSettings().DetectCopilotActivity());
+
+        const auto enabled = createSettings(R"({
+            "experimental.detectCopilotActivity": true,
+            "profiles": [{ "name": "profile0" }]
+        })");
+        VERIFY_IS_TRUE(enabled->GlobalSettings().DetectCopilotActivity());
     }
 
     void DeserializationTests::TestCommandsAndKeybindings()

@@ -438,6 +438,26 @@
   <data name="NewTabRun.Text" xml:space="preserve">
     <value>Open a new tab</value>
   </data>
+  <data name="TabNewButtonText" xml:space="preserve">
+    <value>New tab</value>
+    <comment>Label for the new tab button in vertical tab strip mode.</comment>
+  </data>
+  <data name="CopilotActivityWorkingSingular" xml:space="preserve">
+    <value>Copilot is working in {0} pane</value>
+    <comment>Tooltip and accessible name for the tab Copilot activity indicator. {0} is the number of panes.</comment>
+  </data>
+  <data name="CopilotActivityWorkingPlural" xml:space="preserve">
+    <value>Copilot is working in {0} panes</value>
+    <comment>Tooltip and accessible name for the tab Copilot activity indicator. {0} is the number of panes.</comment>
+  </data>
+  <data name="CopilotActivityAttentionSingular" xml:space="preserve">
+    <value>Copilot may need attention in {0} pane</value>
+    <comment>Tooltip and accessible name for the tab Copilot activity indicator. {0} is the number of panes.</comment>
+  </data>
+  <data name="CopilotActivityAttentionPlural" xml:space="preserve">
+    <value>Copilot may need attention in {0} panes</value>
+    <comment>Tooltip and accessible name for the tab Copilot activity indicator. {0} is the number of panes.</comment>
+  </data>
   <data name="NewPaneRun.Text" xml:space="preserve">
     <value>Alt+Click to split the current window</value>
   </data>

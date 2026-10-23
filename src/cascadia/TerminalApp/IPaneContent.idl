@@ -11,6 +11,13 @@ namespace TerminalApp
         Persist,
     };
 
+    enum CopilotActivityState
+    {
+        None,
+        Working,
+        Attention,
+    };
+
     runtimeclass BellEventArgs
     {
         Boolean FlashTaskbar { get; };

@@ -52,7 +52,6 @@ namespace winrt::TerminalApp::implementation
                 _activePane = pane;
             }
         });
-
         // In case none of the panes were already marked as the focus, just
         // focus the first one.
         if (_activePane == nullptr)
@@ -330,6 +329,7 @@ namespace winrt::TerminalApp::implementation
                 _AttachEventHandlersToContent(pane->Id().value(), content);
             }
         });
+        _UpdateCopilotActivityState();
     }
 
     // Method Description:
@@ -697,6 +697,7 @@ namespace winrt::TerminalApp::implementation
         // possible that the focus events won't propagate immediately. Updating
         // the focus here will give the same effect though.
         _UpdateActivePane(newPane);
+        _UpdateCopilotActivityState();
 
         return { original, newPane };
     }
@@ -807,6 +808,7 @@ namespace winrt::TerminalApp::implementation
         {
             _UpdateActivePane(focus);
         }
+        _UpdateCopilotActivityState();
     }
 
     // Method Description:
@@ -1206,6 +1208,16 @@ namespace winrt::TerminalApp::implementation
         if (const auto& terminal{ content.try_as<TerminalApp::TerminalPaneContent>() })
         {
             events.RestartTerminalRequested = terminal.RestartTerminalRequested(winrt::auto_revoke, { get_weak(), &Tab::_bubbleRestartTerminalRequested });
+            events.CopilotActivityChanged = terminal.CopilotActivityChanged(
+                winrt::auto_revoke,
+                [dispatcher, weakThis](auto&&, auto&&) -> safe_void_coroutine {
+                    const auto weakThisCopy = weakThis;
+                    co_await wil::resume_foreground(dispatcher);
+                    if (const auto tab = weakThisCopy.get())
+                    {
+                        tab->_UpdateCopilotActivityState();
+                    }
+                });
         }
 
         events.NotificationRequested = content.NotificationRequested(
@@ -1304,6 +1316,49 @@ namespace winrt::TerminalApp::implementation
 
         // fire an event signaling that our taskbar progress changed.
         TaskbarProgressChanged.raise(nullptr, nullptr);
+    }
+
+    void Tab::_UpdateCopilotActivityState()
+    {
+        ASSERT_UI_THREAD();
+
+        std::vector<TerminalApp::CopilotActivityState> states;
+        if (_rootPane)
+        {
+            _rootPane->WalkTree([&](const auto& pane) {
+                if (const auto terminal = pane->GetContent().try_as<TerminalApp::TerminalPaneContent>())
+                {
+                    states.emplace_back(terminal.CopilotActivityState());
+                }
+            });
+        }
+
+        const auto activity = AggregateCopilotActivity(states);
+        _tabStatus.CopilotActivityState(activity.state);
+        _tabStatus.CopilotActivityPaneCount(activity.paneCount);
+
+        switch (activity.state)
+        {
+        case TerminalApp::CopilotActivityState::Working:
+            _tabStatus.CopilotActivityGlyph(L"\uE895");
+            _tabStatus.CopilotActivityText(activity.paneCount == 1 ?
+                                               RS_fmt(L"CopilotActivityWorkingSingular", activity.paneCount) :
+                                               RS_fmt(L"CopilotActivityWorkingPlural", activity.paneCount));
+            _tabStatus.CopilotActivityVisibility(Visibility::Visible);
+            break;
+        case TerminalApp::CopilotActivityState::Attention:
+            _tabStatus.CopilotActivityGlyph(L"\uE7BA");
+            _tabStatus.CopilotActivityText(activity.paneCount == 1 ?
+                                               RS_fmt(L"CopilotActivityAttentionSingular", activity.paneCount) :
+                                               RS_fmt(L"CopilotActivityAttentionPlural", activity.paneCount));
+            _tabStatus.CopilotActivityVisibility(Visibility::Visible);
+            break;
+        default:
+            _tabStatus.CopilotActivityGlyph(L"");
+            _tabStatus.CopilotActivityText(L"");
+            _tabStatus.CopilotActivityVisibility(Visibility::Collapsed);
+            break;
+        }
     }
 
     // Method Description:
@@ -1433,6 +1488,11 @@ namespace winrt::TerminalApp::implementation
 
             if (tab)
             {
+                if (const auto terminal = sender->GetContent().try_as<TerminalApp::TerminalPaneContent>())
+                {
+                    terminal.SetCopilotPaneFocused(true);
+                }
+
                 if (sender != tab->_activePane)
                 {
                     auto senderIsChild = tab->_activePane->_HasChild(sender);
@@ -1459,12 +1519,17 @@ namespace winrt::TerminalApp::implementation
             }
         });
 
-        auto lostFocusToken = pane->LostFocus([weakThis](std::shared_ptr<Pane> /*sender*/) {
+        auto lostFocusToken = pane->LostFocus([weakThis](std::shared_ptr<Pane> sender) {
             // Do nothing if the Tab's lifetime is expired or pane isn't new.
             auto tab{ weakThis.get() };
 
             if (tab)
             {
+                if (const auto terminal = sender->GetContent().try_as<TerminalApp::TerminalPaneContent>())
+                {
+                    terminal.SetCopilotPaneFocused(false);
+                }
+
                 // update this tab's focus state
                 tab->_focusState = WUX::FocusState::Unfocused;
             }
@@ -1522,6 +1587,7 @@ namespace winrt::TerminalApp::implementation
                 if (auto tab{ weakThis.get() })
                 {
                     tab->_DetachEventHandlersFromContent(pane->Id().value());
+                    tab->_UpdateCopilotActivityState();
 
                     for (auto i = tab->_mruPanes.begin(); i != tab->_mruPanes.end(); ++i)
                     {

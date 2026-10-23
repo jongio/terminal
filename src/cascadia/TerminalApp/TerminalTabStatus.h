@@ -21,6 +21,11 @@ namespace winrt::TerminalApp::implementation
         WINRT_OBSERVABLE_PROPERTY(uint32_t, ProgressValue, PropertyChanged.raise);
         WINRT_OBSERVABLE_PROPERTY(bool, IsInputBroadcastActive, PropertyChanged.raise);
         WINRT_OBSERVABLE_PROPERTY(winrt::Windows::UI::Color, TabColorIndicator, PropertyChanged.raise);
+        WINRT_OBSERVABLE_PROPERTY(TerminalApp::CopilotActivityState, CopilotActivityState, PropertyChanged.raise, TerminalApp::CopilotActivityState::None);
+        WINRT_OBSERVABLE_PROPERTY(uint32_t, CopilotActivityPaneCount, PropertyChanged.raise);
+        WINRT_OBSERVABLE_PROPERTY(winrt::hstring, CopilotActivityGlyph, PropertyChanged.raise);
+        WINRT_OBSERVABLE_PROPERTY(winrt::hstring, CopilotActivityText, PropertyChanged.raise);
+        WINRT_OBSERVABLE_PROPERTY(winrt::Windows::UI::Xaml::Visibility, CopilotActivityVisibility, PropertyChanged.raise, winrt::Windows::UI::Xaml::Visibility::Collapsed);
     };
 }
 

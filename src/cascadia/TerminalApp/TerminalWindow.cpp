@@ -285,6 +285,11 @@ namespace winrt::TerminalApp::implementation
         return _currentWindowSettings().ShowTabsInTitlebar();
     }
 
+    Microsoft::Terminal::Settings::Model::TabPosition TerminalWindow::GetTabPosition()
+    {
+        return _currentWindowSettings().TabPosition();
+    }
+
     bool TerminalWindow::GetInitialAlwaysOnTop()
     {
         return _currentWindowSettings().AlwaysOnTop();

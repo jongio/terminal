@@ -6,6 +6,8 @@
 #include "BellEventArgs.g.h"
 #include "NotificationEventArgs.g.h"
 #include "BasicPaneEvents.h"
+#include "CopilotActivity.h"
+#include "CopilotProcessTracker.h"
 
 namespace winrt::TerminalApp::implementation
 {
@@ -49,6 +51,8 @@ namespace winrt::TerminalApp::implementation
                             const winrt::Microsoft::Terminal::Settings::Model::WindowSettings& windowSettings);
 
         void MarkAsDefterm();
+        TerminalApp::CopilotActivityState CopilotActivityState() const noexcept;
+        void SetCopilotPaneFocused(bool focused);
 
         winrt::Microsoft::Terminal::Settings::Model::Profile GetProfile() const
         {
@@ -67,6 +71,7 @@ namespace winrt::TerminalApp::implementation
         Windows::Foundation::Size GridUnitSize();
 
         til::typed_event<TerminalApp::TerminalPaneContent, winrt::Windows::Foundation::IInspectable> RestartTerminalRequested;
+        til::typed_event<TerminalApp::TerminalPaneContent, winrt::Windows::Foundation::IInspectable> CopilotActivityChanged;
 
         // See BasicPaneEvents for most generic event definitions
 
@@ -76,6 +81,14 @@ namespace winrt::TerminalApp::implementation
         winrt::Microsoft::Terminal::Settings::Model::Profile _profile{ nullptr };
         std::shared_ptr<TerminalSettingsCache> _cache{};
         bool _isDefTermSession{ false };
+        bool _detectCopilotActivity{ false };
+        CopilotProcessIdentity _copilotRootProcess;
+        uint64_t _copilotRegistrationGeneration{};
+        std::shared_ptr<CopilotPaneEventState> _copilotEventState{ std::make_shared<CopilotPaneEventState>() };
+        CopilotPaneActivity _copilotActivity;
+        CopilotProcessTracker::Registration _copilotProcessRegistration;
+        SafeDispatcherTimer _copilotWorkingLeaseTimer;
+        TerminalApp::CopilotActivityState _publishedCopilotActivity{ TerminalApp::CopilotActivityState::None };
 
         struct ControlEventTokens
         {
@@ -106,8 +119,18 @@ namespace winrt::TerminalApp::implementation
         void _controlReadOnlyChanged(const winrt::Windows::Foundation::IInspectable& sender, const winrt::Windows::Foundation::IInspectable& args);
         void _controlFocusFollowMouseRequested(const winrt::Windows::Foundation::IInspectable& sender, const winrt::Windows::Foundation::IInspectable& args);
         void _controlShowNotification(const winrt::Windows::Foundation::IInspectable& sender, const winrt::Microsoft::Terminal::Control::ShowNotificationEventArgs& args);
+        void _copilotWorkingLeaseExpired(const winrt::Windows::Foundation::IInspectable& sender, const winrt::Windows::Foundation::IInspectable& args);
 
         void _closeTerminalRequestedHandler(const winrt::Windows::Foundation::IInspectable& sender, const winrt::Windows::Foundation::IInspectable& /*args*/);
         void _restartTerminalRequestedHandler(const winrt::Windows::Foundation::IInspectable& sender, const winrt::Windows::Foundation::IInspectable& /*args*/);
+
+        void _applyCopilotProgress(const CopilotProgressTransition& transition);
+        void _queueCopilotAttention(const CopilotAttentionTransition& transition);
+        void _queueCopilotProgress(const CopilotProgressTransition& transition);
+        void _refreshCopilotWorkingLease();
+        void _publishCopilotActivity();
+        void _resetCopilotActivity();
+        void _resetCopilotActivity(const CopilotEventOrdering& ordering);
+        void _updateCopilotProcessRegistration();
     };
 }

@@ -2469,6 +2469,11 @@
           "description": "When set to true, adds preset \"Color Selection\" actions (keybindings) to allow colorizing selected text via keystroke, similar to the legacy conhost EnableColorSelection feature (such as alt+6 to color the selection red).",
           "type": "boolean"
         },
+        "experimental.detectCopilotActivity": {
+          "default": false,
+          "description": "When set to true, shows heuristic Copilot working and possible-attention indicators for local Windows ConPTY panes that contain a released copilot.exe process.",
+          "type": "boolean"
+        },
         "disableAnimations": {
           "default": false,
           "description": "When set to `true`, visual animations will be disabled across the application.",
@@ -2757,6 +2762,17 @@
           "enum": [
             "afterLastTab",
             "afterCurrentTab"
+          ],
+          "type": "string"
+        },
+        "tabPosition": {
+          "default": "top",
+          "description": "Controls which edge of the window contains the tab row.",
+          "enum": [
+            "top",
+            "bottom",
+            "left",
+            "right"
           ],
           "type": "string"
         },

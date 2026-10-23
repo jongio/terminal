@@ -14,7 +14,11 @@ namespace TerminalApp
 
         Microsoft.Terminal.Settings.Model.Profile GetProfile();
 
+        CopilotActivityState CopilotActivityState { get; };
+        void SetCopilotPaneFocused(Boolean focused);
+
         event Windows.Foundation.TypedEventHandler<TerminalPaneContent, Object> RestartTerminalRequested;
+        event Windows.Foundation.TypedEventHandler<TerminalPaneContent, Object> CopilotActivityChanged;
     }
 
     [default_interface] runtimeclass FilteredTask : Windows.UI.Xaml.Data.INotifyPropertyChanged

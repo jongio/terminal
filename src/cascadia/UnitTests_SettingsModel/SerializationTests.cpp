@@ -130,6 +130,7 @@ namespace SettingsModelUnitTests
                 "disableAnimations": false,
 
                 "trimPaste": true,
+                "experimental.detectCopilotActivity": true,
 
                 "warning.confirmOnClose": "automatic",
                 "warning.largePaste" : true,
