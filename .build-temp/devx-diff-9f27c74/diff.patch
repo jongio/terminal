@@ -1,0 +1,1808 @@
+diff --git a/doc/cascadia/profiles.schema.json b/doc/cascadia/profiles.schema.json
+index 33888aa9d..fb8af8223 100644
+--- a/doc/cascadia/profiles.schema.json
++++ b/doc/cascadia/profiles.schema.json
+@@ -2760,6 +2760,17 @@
+           ],
+           "type": "string"
+         },
++        "tabPosition": {
++          "default": "top",
++          "description": "Controls which edge of the window contains the tab row.",
++          "enum": [
++            "top",
++            "bottom",
++            "left",
++            "right"
++          ],
++          "type": "string"
++        },
+         "autoHideWindow": {
+           "default": false,
+           "description": "If enabled, Terminal window will be hidden as soon as it loses focus.",
+diff --git a/src/cascadia/LocalTests_TerminalApp/TabTests.cpp b/src/cascadia/LocalTests_TerminalApp/TabTests.cpp
+index 3bf302108..ac9531ef0 100644
+--- a/src/cascadia/LocalTests_TerminalApp/TabTests.cpp
++++ b/src/cascadia/LocalTests_TerminalApp/TabTests.cpp
+@@ -75,6 +75,8 @@ namespace TerminalAppLocalTests
+         TEST_METHOD(CreateTerminalMuxXamlType);
+ 
+         TEST_METHOD(CreateTerminalPage);
++        TEST_METHOD(TabPositionReloadRequiresRelaunch);
++        TEST_METHOD(VerticalTabPositionCreatesSidebar);
+ 
+         TEST_METHOD(TryDuplicateBadTab);
+         TEST_METHOD(TryDuplicateBadPane);
+@@ -110,7 +112,7 @@ namespace TerminalAppLocalTests
+     private:
+         void _initializeTerminalPage(winrt::com_ptr<winrt::TerminalApp::implementation::TerminalPage>& page,
+                                      CascadiaSettings initialSettings);
+-        winrt::com_ptr<winrt::TerminalApp::implementation::TerminalPage> _commonSetup();
++        winrt::com_ptr<winrt::TerminalApp::implementation::TerminalPage> _commonSetup(TabPosition tabPosition = TabPosition::Top);
+         winrt::com_ptr<winrt::TerminalApp::implementation::WindowProperties> _windowProperties;
+         winrt::com_ptr<winrt::TerminalApp::implementation::ContentManager> _contentManager;
+     };
+@@ -199,6 +201,101 @@ namespace TerminalAppLocalTests
+         VERIFY_SUCCEEDED(result);
+     }
+ 
++    void TabTests::TabPositionReloadRequiresRelaunch()
++    {
++        const auto page = _commonSetup();
++
++        TestOnUIThread([&]() {
++            const auto originalTab = page->_tabs.GetAt(0);
++            const auto originalTabImpl = winrt::get_self<winrt::TerminalApp::implementation::Tab>(originalTab);
++            const auto settings = page->_settings;
++            settings.WindowSettingsDefaults().ShowTabsInTitlebar(false);
++            VERIFY_ARE_EQUAL(TabPosition::Top, page->_tabPosition);
++            VERIFY_ARE_EQUAL(3u, page->Root().RowDefinitions().Size());
++            VERIFY_ARE_EQUAL(0, Grid::GetRow(page->_tabRow));
++            VERIFY_ARE_EQUAL(L"Move left", originalTabImpl->_moveLeftMenuItem.Text());
++            VERIFY_ARE_EQUAL(L"Move right", originalTabImpl->_moveRightMenuItem.Text());
++            VERIFY_ARE_EQUAL(L"Close tabs to the right", originalTabImpl->_closeTabsAfterMenuItem.Text());
++
++            originalTabImpl->UpdateTabPositionText(TabPosition::Left);
++            VERIFY_ARE_EQUAL(L"Move up", originalTabImpl->_moveLeftMenuItem.Text());
++            VERIFY_ARE_EQUAL(L"Move down", originalTabImpl->_moveRightMenuItem.Text());
++            VERIFY_ARE_EQUAL(L"Close tabs below", originalTabImpl->_closeTabsAfterMenuItem.Text());
++
++            settings.WindowSettingsDefaults().TabPosition(TabPosition::Left);
++            page->SetSettings(settings, true);
++
++            VERIFY_ARE_EQUAL(originalTab, page->_tabs.GetAt(0));
++            VERIFY_ARE_EQUAL(TabPosition::Top, page->_tabPosition);
++            VERIFY_ARE_EQUAL(3u, page->Root().RowDefinitions().Size());
++            VERIFY_ARE_EQUAL(0u, page->Root().ColumnDefinitions().Size());
++            VERIFY_ARE_EQUAL(0, Grid::GetRow(page->_tabRow));
++        });
++    }
++
++    void TabTests::VerticalTabPositionCreatesSidebar()
++    {
++        for (const auto position : { TabPosition::Left, TabPosition::Right })
++        {
++            const auto page = _commonSetup(position);
++
++            TestOnUIThread([&]() {
++                VERIFY_ARE_EQUAL(position, page->_tabPosition);
++                VERIFY_ARE_EQUAL(3u, page->Root().ColumnDefinitions().Size());
++                VERIFY_IS_NOT_NULL(page->_tabStripSplitter);
++                VERIFY_ARE_EQUAL(L"Resize tab strip", Automation::AutomationProperties::GetName(page->_tabStripSplitter));
++                VERIFY_ARE_EQUAL(12.0, page->_tabStripSplitter.Width());
++                VERIFY_ARE_EQUAL(-4.0, page->_tabStripSplitter.Margin().Left);
++                VERIFY_ARE_EQUAL(-4.0, page->_tabStripSplitter.Margin().Right);
++                const winrt::Windows::UI::Color opaqueBlack{ 255, 0, 0, 0 };
++                VERIFY_ARE_EQUAL(opaqueBlack, page->_tabStripSplitter.Background().as<Media::SolidColorBrush>().Color());
++                VERIFY_ARE_EQUAL(position == TabPosition::Left ? 0 : 2, Grid::GetColumn(page->_tabRow));
++                VERIFY_ARE_EQUAL(HorizontalAlignment::Stretch, page->_newTabButton.HorizontalAlignment());
++
++                const auto tabStripColumn = position == TabPosition::Left ? 0u : 2u;
++                page->_SetTabStripWidth(50);
++                VERIFY_ARE_EQUAL(100.0, page->_tabStripWidth);
++                VERIFY_ARE_EQUAL(100.0, page->Root().ColumnDefinitions().GetAt(tabStripColumn).Width().Value);
++
++                page->_SetTabStripWidth(450);
++                VERIFY_ARE_EQUAL(400.0, page->_tabStripWidth);
++                VERIFY_ARE_EQUAL(400.0, page->Root().ColumnDefinitions().GetAt(tabStripColumn).Width().Value);
++
++                page->_SetTabStripWidth(200);
++                VERIFY_IS_TRUE(page->_ResizeTabStripForKey(VirtualKey::Right));
++                VERIFY_ARE_EQUAL(position == TabPosition::Left ? 210.0 : 190.0, page->_tabStripWidth);
++                VERIFY_IS_FALSE(page->_ResizeTabStripForKey(VirtualKey::Enter));
++
++                page->_splitterDragging = true;
++                page->_splitterPointerId = 1;
++                page->_EndTabStripResize();
++                VERIFY_IS_FALSE(page->_splitterDragging);
++                VERIFY_IS_FALSE(page->_splitterPointerId.has_value());
++
++                page->_settings.WindowSettingsDefaults().ShowTabsInTitlebar(true);
++                page->_settings.WindowSettingsDefaults().AlwaysShowTabs(false);
++                page->_UpdateTabView();
++                VERIFY_ARE_EQUAL(0.0, page->Root().ColumnDefinitions().GetAt(tabStripColumn).MinWidth());
++                VERIFY_ARE_EQUAL(0.0, page->Root().ColumnDefinitions().GetAt(tabStripColumn).Width().Value);
++                VERIFY_ARE_EQUAL(Visibility::Collapsed, page->_tabStripSplitter.Visibility());
++
++                page->_settings.WindowSettingsDefaults().AlwaysShowTabs(true);
++                page->_UpdateTabView();
++                VERIFY_ARE_EQUAL(100.0, page->Root().ColumnDefinitions().GetAt(tabStripColumn).MinWidth());
++                VERIFY_ARE_EQUAL(page->_tabStripWidth, page->Root().ColumnDefinitions().GetAt(tabStripColumn).Width().Value);
++                VERIFY_ARE_EQUAL(Visibility::Visible, page->_tabStripSplitter.Visibility());
++            });
++        }
++
++        const auto bottomPage = _commonSetup(TabPosition::Bottom);
++        TestOnUIThread([&]() {
++            VERIFY_ARE_EQUAL(TabPosition::Bottom, bottomPage->_tabPosition);
++            VERIFY_ARE_EQUAL(3u, bottomPage->Root().RowDefinitions().Size());
++            VERIFY_ARE_EQUAL(2, Grid::GetRow(bottomPage->_tabRow));
++            VERIFY_ARE_EQUAL(0u, bottomPage->Root().ColumnDefinitions().Size());
++        });
++    }
++
+     // Method Description:
+     // - This is a helper to set up a TerminalPage for a unittest. This method
+     //   does a couple things:
+@@ -566,7 +663,7 @@ namespace TerminalAppLocalTests
+     // - <none>
+     // Return Value:
+     // - The initialized TerminalPage, ready to use.
+-    winrt::com_ptr<winrt::TerminalApp::implementation::TerminalPage> TabTests::_commonSetup()
++    winrt::com_ptr<winrt::TerminalApp::implementation::TerminalPage> TabTests::_commonSetup(const TabPosition tabPosition)
+     {
+         static constexpr std::wstring_view settingsJson0{ LR"(
+         {
+@@ -675,6 +772,7 @@ namespace TerminalAppLocalTests
+ 
+         CascadiaSettings settings0{ settingsJson0, {} };
+         VERIFY_IS_NOT_NULL(settings0);
++        settings0.WindowSettingsDefaults().TabPosition(tabPosition);
+ 
+         const auto guid1 = Microsoft::Console::Utils::GuidFromString(L"{6239a42c-1111-49a3-80bd-e8fdd045185c}");
+         const auto guid2 = Microsoft::Console::Utils::GuidFromString(L"{6239a42c-2222-49a3-80bd-e8fdd045185c}");
+diff --git a/src/cascadia/TerminalApp/App.xaml b/src/cascadia/TerminalApp/App.xaml
+index dc66dc0af..50b7acc27 100644
+--- a/src/cascadia/TerminalApp/App.xaml
++++ b/src/cascadia/TerminalApp/App.xaml
+@@ -244,6 +244,7 @@
+                 </ResourceDictionary>
+ 
+                 <ResourceDictionary Source="ms-resource:///Files/TerminalApp/HighlightedTextControlStyle.xaml" />
++                <ResourceDictionary Source="ms-resource:///Files/TerminalApp/VerticalTabViewStyle.xaml" />
+             </ResourceDictionary.MergedDictionaries>
+         </ResourceDictionary>
+ 
+diff --git a/src/cascadia/TerminalApp/Resources/en-US/Resources.resw b/src/cascadia/TerminalApp/Resources/en-US/Resources.resw
+index b142ca18b..c2d924eb4 100644
+--- a/src/cascadia/TerminalApp/Resources/en-US/Resources.resw
++++ b/src/cascadia/TerminalApp/Resources/en-US/Resources.resw
+@@ -173,6 +173,10 @@
+   <data name="TabCloseAfter" xml:space="preserve">
+     <value>Close tabs to the right</value>
+   </data>
++  <data name="TabCloseBelow" xml:space="preserve">
++    <value>Close tabs below</value>
++    <comment>Text for closing all tabs that appear below the selected tab in a vertical tab strip.</comment>
++  </data>
+   <data name="TabCloseOther" xml:space="preserve">
+     <value>Close other tabs</value>
+   </data>
+@@ -438,6 +442,23 @@
+   <data name="NewTabRun.Text" xml:space="preserve">
+     <value>Open a new tab</value>
+   </data>
++  <data name="TabNewButtonText" xml:space="preserve">
++    <value>New tab</value>
++    <comment>Label for the new tab button in vertical tab strip mode.</comment>
++  </data>
++  <data name="TabStripResizeHandleName" xml:space="preserve">
++    <value>Resize tab strip</value>
++  </data>
++  <data name="TabStripResizeHandleHelpText" xml:space="preserve">
++    <value>Drag or use the Left and Right Arrow keys to resize the tab strip.</value>
++  </data>
++  <data name="TabStripResizeHandleControlType" xml:space="preserve">
++    <value>resize handle</value>
++  </data>
++  <data name="TabStripResizeHandleWidth" xml:space="preserve">
++    <value>Tab strip width: {0} pixels</value>
++    <comment>{0} is the current tab strip width in device-independent pixels.</comment>
++  </data>
+   <data name="NewPaneRun.Text" xml:space="preserve">
+     <value>Alt+Click to split the current window</value>
+   </data>
+@@ -887,6 +908,10 @@
+   <data name="TabCloseAfterToolTip" xml:space="preserve">
+     <value>Close all tabs to the right of this tab</value>
+   </data>
++  <data name="TabCloseBelowToolTip" xml:space="preserve">
++    <value>Close all tabs below this tab</value>
++    <comment>Tooltip for closing all tabs that appear below the selected tab in a vertical tab strip.</comment>
++  </data>
+   <data name="TabCloseOtherToolTip" xml:space="preserve">
+     <value>Close all tabs except this tab</value>
+   </data>
+@@ -993,6 +1018,14 @@
+   <data name="TabMoveRight" xml:space="preserve">
+     <value>Move right</value>
+   </data>
++  <data name="TabMoveUp" xml:space="preserve">
++    <value>Move up</value>
++    <comment>Moves a tab toward the top of a vertical tab strip.</comment>
++  </data>
++  <data name="TabMoveDown" xml:space="preserve">
++    <value>Move down</value>
++    <comment>Moves a tab toward the bottom of a vertical tab strip.</comment>
++  </data>
+   <data name="InvalidRegex" xml:space="preserve">
+     <value>An invalid regular expression was found.</value>
+   </data>
+diff --git a/src/cascadia/TerminalApp/Tab.cpp b/src/cascadia/TerminalApp/Tab.cpp
+index 44188ddaf..90da17a00 100644
+--- a/src/cascadia/TerminalApp/Tab.cpp
++++ b/src/cascadia/TerminalApp/Tab.cpp
+@@ -1597,6 +1597,33 @@ namespace winrt::TerminalApp::implementation
+         flyout.Items().Append(moveSubMenu);
+     }
+ 
++    void Tab::UpdateTabPositionText(const TabPosition tabPosition)
++    {
++        ASSERT_UI_THREAD();
++
++        const auto vertical = tabPosition == TabPosition::Left || tabPosition == TabPosition::Right;
++        if (vertical)
++        {
++            _moveLeftMenuItem.Text(RS_(L"TabMoveUp"));
++            _moveRightMenuItem.Text(RS_(L"TabMoveDown"));
++            _closeTabsAfterMenuItem.Text(RS_(L"TabCloseBelow"));
++
++            const auto closeTabsAfterToolTip = RS_(L"TabCloseBelowToolTip");
++            WUX::Controls::ToolTipService::SetToolTip(_closeTabsAfterMenuItem, box_value(closeTabsAfterToolTip));
++            Automation::AutomationProperties::SetHelpText(_closeTabsAfterMenuItem, closeTabsAfterToolTip);
++        }
++        else
++        {
++            _moveLeftMenuItem.Text(RS_(L"TabMoveLeft"));
++            _moveRightMenuItem.Text(RS_(L"TabMoveRight"));
++            _closeTabsAfterMenuItem.Text(RS_(L"TabCloseAfter"));
++
++            const auto closeTabsAfterToolTip = RS_(L"TabCloseAfterToolTip");
++            WUX::Controls::ToolTipService::SetToolTip(_closeTabsAfterMenuItem, box_value(closeTabsAfterToolTip));
++            Automation::AutomationProperties::SetHelpText(_closeTabsAfterMenuItem, closeTabsAfterToolTip);
++        }
++    }
++
+     // Method Description:
+     // - Append the close menu items to the context menu flyout
+     // Arguments:
+diff --git a/src/cascadia/TerminalApp/Tab.h b/src/cascadia/TerminalApp/Tab.h
+index f1af517c8..82d5f40ec 100644
+--- a/src/cascadia/TerminalApp/Tab.h
++++ b/src/cascadia/TerminalApp/Tab.h
+@@ -60,6 +60,7 @@ namespace winrt::TerminalApp::implementation
+ 
+         void UpdateSettings(const winrt::Microsoft::Terminal::Settings::Model::CascadiaSettings& settings,
+                             const winrt::Microsoft::Terminal::Settings::Model::WindowSettings& windowSettings);
++        void UpdateTabPositionText(winrt::Microsoft::Terminal::Settings::Model::TabPosition tabPosition);
+         void UpdateTitle();
+ 
+         void Close();
+diff --git a/src/cascadia/TerminalApp/TabManagement.cpp b/src/cascadia/TerminalApp/TabManagement.cpp
+index 72c5e0fb6..af7f6f9bb 100644
+--- a/src/cascadia/TerminalApp/TabManagement.cpp
++++ b/src/cascadia/TerminalApp/TabManagement.cpp
+@@ -107,6 +107,7 @@ namespace winrt::TerminalApp::implementation
+         // reloaded, but we need this here to make sure we pass our current
+         // window settings to the tab too.
+         newTabImpl->UpdateSettings(_settings, _currentWindowSettings());
++        newTabImpl->UpdateTabPositionText(_tabPosition);
+ 
+         // If insert position is not passed, calculate it
+         if (insertPosition == -1)
+@@ -261,9 +262,11 @@ namespace winrt::TerminalApp::implementation
+         // - we're not in focus mode
+         // - we're not in full screen, or the user has enabled fullscreen tabs
+         // - there is more than one tab, or the user has chosen to always show tabs
++        const auto tabsInTitlebar = _tabPosition == Settings::Model::TabPosition::Top &&
++                                    _currentWindowSettings().ShowTabsInTitlebar();
+         const auto isVisible = !_isInFocusMode &&
+                                (!_isFullscreen || _showTabsFullscreen) &&
+-                               (_currentWindowSettings().ShowTabsInTitlebar() ||
++                               (tabsInTitlebar ||
+                                 (_tabs.Size() > 1) ||
+                                 _currentWindowSettings().AlwaysShowTabs());
+ 
+@@ -274,9 +277,42 @@ namespace winrt::TerminalApp::implementation
+         }
+         if (_tabRow)
+         {
+-            // collapse/show the row that the tabs are in.
+-            // NaN is the special value XAML uses for "Auto" sizing.
+-            _tabRow.Height(isVisible ? NAN : 0);
++            if (_tabPosition == Settings::Model::TabPosition::Left ||
++                _tabPosition == Settings::Model::TabPosition::Right)
++            {
++                // For left/right positions, collapse the column width instead of row height.
++                // Also hide the splitter.
++                _tabRow.Width(isVisible ? std::numeric_limits<double>::quiet_NaN() : 0);
++                if (_tabStripSplitter)
++                {
++                    _tabStripSplitter.Visibility(isVisible ? Visibility::Visible : Visibility::Collapsed);
++                }
++                // Collapse or restore the tab strip column
++                auto tabStripColIdx = (_tabPosition == Settings::Model::TabPosition::Left) ? 0u : 2u;
++                auto root = this->Root();
++                if (root.ColumnDefinitions().Size() > tabStripColIdx)
++                {
++                    auto col = root.ColumnDefinitions().GetAt(tabStripColIdx);
++                    if (isVisible)
++                    {
++                        col.MinWidth(TabStripMinWidth);
++                        col.MaxWidth(TabStripMaxWidth);
++                        col.Width(WUX::GridLengthHelper::FromPixels(_tabStripWidth));
++                    }
++                    else
++                    {
++                        col.MinWidth(0);
++                        col.MaxWidth(TabStripMaxWidth);
++                        col.Width(WUX::GridLengthHelper::FromPixels(0));
++                    }
++                }
++            }
++            else
++            {
++                // Top/Bottom: collapse/show the row that the tabs are in.
++                // NaN is the special value XAML uses for "Auto" sizing.
++                _tabRow.Height(isVisible ? NAN : 0);
++            }
+         }
+     }
+ 
+diff --git a/src/cascadia/TerminalApp/TerminalAppLib.vcxproj b/src/cascadia/TerminalApp/TerminalAppLib.vcxproj
+index 371dbd174..50fd1398d 100644
+--- a/src/cascadia/TerminalApp/TerminalAppLib.vcxproj
++++ b/src/cascadia/TerminalApp/TerminalAppLib.vcxproj
+@@ -65,6 +65,10 @@
+       <Type>DefaultStyle</Type>
+       <SubType>Designer</SubType>
+     </Page>
++    <Page Include="VerticalTabViewStyle.xaml">
++      <Type>DefaultStyle</Type>
++      <SubType>Designer</SubType>
++    </Page>
+     <Page Include="ColorPickupFlyout.xaml">
+       <SubType>Designer</SubType>
+     </Page>
+diff --git a/src/cascadia/TerminalApp/TerminalPage.cpp b/src/cascadia/TerminalApp/TerminalPage.cpp
+index 6a65c342e..1430de5f0 100644
+--- a/src/cascadia/TerminalApp/TerminalPage.cpp
++++ b/src/cascadia/TerminalApp/TerminalPage.cpp
+@@ -323,6 +323,436 @@ namespace winrt::TerminalApp::implementation
+         return true;
+     }
+ 
++    // Method Description:
++    // - Rearranges the TerminalPage's root grid to place the tab strip at the
++    //   position indicated by the current window settings. For Top,
++    //   the existing behavior is preserved (tabs in titlebar or Row 0). For
++    //   Bottom, the tab row goes in the last row. For Left/Right, an outer
++    //   3-column grid is created with a resizable splitter between the tab strip
++    //   and the content area.
++    void TerminalPage::_ApplyTabPosition()
++    {
++        _tabPosition = _currentWindowSettings().TabPosition();
++
++        auto root = this->Root();
++        auto infoBarPanel = this->InfoBarPanel();
++
++        switch (_tabPosition)
++        {
++        case TabPosition::Top:
++        {
++            // Default XAML layout: Row 0=TabRow(Auto), Row 1=InfoBars(Auto), Row 2=TabContent(*)
++            // If ShowTabsInTitlebar, remove the tab row from the grid and raise SetTitleBarContent
++            if (_currentWindowSettings().ShowTabsInTitlebar())
++            {
++                uint32_t index = 0;
++                if (root.Children().IndexOf(_tabRow, index))
++                {
++                    root.Children().RemoveAt(index);
++                }
++                SetTitleBarContent.raise(*this, _tabRow);
++
++                const auto transparent = Media::SolidColorBrush();
++                transparent.Color(Windows::UI::Colors::Transparent());
++                _tabRow.Background(transparent);
++            }
++            break;
++        }
++        case TabPosition::Bottom:
++        {
++            // Rearrange to: Row 0=InfoBars(Auto), Row 1=TabContent(*), Row 2=TabRow(Auto)
++            // Remove only the three layout elements; leave deferred-load stubs
++            // (CommandPalette, SuggestionsControl, dialogs, etc.) in the tree
++            // so that FindName() can still locate them later.
++            uint32_t idx;
++            if (root.Children().IndexOf(_tabRow, idx))
++                root.Children().RemoveAt(idx);
++            if (root.Children().IndexOf(infoBarPanel, idx))
++                root.Children().RemoveAt(idx);
++            if (root.Children().IndexOf(_tabContent, idx))
++                root.Children().RemoveAt(idx);
++
++            root.RowDefinitions().Clear();
++
++            WUX::Controls::RowDefinition row0;
++            row0.Height(WUX::GridLengthHelper::FromValueAndType(1, WUX::GridUnitType::Auto));
++            WUX::Controls::RowDefinition row1;
++            row1.Height(WUX::GridLengthHelper::FromValueAndType(1, WUX::GridUnitType::Star));
++            WUX::Controls::RowDefinition row2;
++            row2.Height(WUX::GridLengthHelper::FromValueAndType(1, WUX::GridUnitType::Auto));
++            root.RowDefinitions().Append(row0);
++            root.RowDefinitions().Append(row1);
++            root.RowDefinitions().Append(row2);
++
++            WUX::Controls::Grid::SetRow(infoBarPanel, 0);
++            WUX::Controls::Grid::SetRow(_tabContent, 1);
++            WUX::Controls::Grid::SetRow(_tabRow, 2);
++
++            // Insert layout elements at the front so overlay elements
++            // (command palette, dialogs) remain on top in z-order.
++            root.Children().InsertAt(0, infoBarPanel);
++            root.Children().InsertAt(1, _tabContent);
++            root.Children().InsertAt(2, _tabRow);
++
++            // Update overlay elements: the ones that had Grid.Row="2" in XAML
++            // should now target Row 1 (the content area) instead of Row 2
++            // (which is the tab row in this layout). Iterate the remaining
++            // children (index 3+) and reassign any that were on row 2.
++            for (uint32_t i = 3; i < root.Children().Size(); ++i)
++            {
++                auto child = root.Children().GetAt(i);
++                if (const auto& fwe{ child.try_as<WUX::FrameworkElement>() })
++                {
++                    if (WUX::Controls::Grid::GetRow(fwe) == 2)
++                    {
++                        WUX::Controls::Grid::SetRow(fwe, 1);
++                    }
++                }
++            }
++            break;
++        }
++        case TabPosition::Left:
++        case TabPosition::Right:
++        {
++            // Build a 3-column layout: [tabstrip | splitter | content] or reversed.
++            // Remove only the three layout elements; leave deferred-load stubs
++            // (CommandPalette, SuggestionsControl, dialogs, etc.) in the tree
++            // so that FindName() can still locate them later.
++            uint32_t removeIdx;
++            if (root.Children().IndexOf(_tabRow, removeIdx))
++                root.Children().RemoveAt(removeIdx);
++            if (root.Children().IndexOf(infoBarPanel, removeIdx))
++                root.Children().RemoveAt(removeIdx);
++            if (root.Children().IndexOf(_tabContent, removeIdx))
++                root.Children().RemoveAt(removeIdx);
++
++            root.RowDefinitions().Clear();
++
++            // Create column definitions
++            WUX::Controls::ColumnDefinition tabStripCol;
++            tabStripCol.Width(WUX::GridLengthHelper::FromPixels(_tabStripWidth));
++            tabStripCol.MinWidth(TabStripMinWidth);
++            tabStripCol.MaxWidth(TabStripMaxWidth);
++
++            WUX::Controls::ColumnDefinition splitterCol;
++            splitterCol.Width(WUX::GridLengthHelper::FromValueAndType(1, WUX::GridUnitType::Auto));
++
++            WUX::Controls::ColumnDefinition contentCol;
++            contentCol.Width(WUX::GridLengthHelper::FromValueAndType(1, WUX::GridUnitType::Star));
++
++            // Create internal content grid (infobars + tab content stacked vertically)
++            WUX::Controls::Grid contentGrid;
++            WUX::Controls::RowDefinition infoRow;
++            infoRow.Height(WUX::GridLengthHelper::FromValueAndType(1, WUX::GridUnitType::Auto));
++            WUX::Controls::RowDefinition mainRow;
++            mainRow.Height(WUX::GridLengthHelper::FromValueAndType(1, WUX::GridUnitType::Star));
++            contentGrid.RowDefinitions().Append(infoRow);
++            contentGrid.RowDefinitions().Append(mainRow);
++
++            WUX::Controls::Grid::SetRow(infoBarPanel, 0);
++            WUX::Controls::Grid::SetRow(_tabContent, 1);
++            contentGrid.Children().Append(infoBarPanel);
++            contentGrid.Children().Append(_tabContent);
++
++            // Use a button so the resize handle is keyboard focusable and exposed to UI Automation.
++            _tabStripSplitter = WUX::Controls::Button();
++            _tabStripSplitter.Width(TabStripResizeHandleWidth);
++            _tabStripSplitter.Margin(WUX::Thickness{ -4, 0, -4, 0 });
++            _tabStripSplitter.Background(WUX::Media::SolidColorBrush{ Colors::Black() });
++            _tabStripSplitter.BorderThickness({});
++            _tabStripSplitter.Padding({});
++            Automation::AutomationProperties::SetName(_tabStripSplitter, RS_(L"TabStripResizeHandleName"));
++            Automation::AutomationProperties::SetHelpText(_tabStripSplitter, RS_(L"TabStripResizeHandleHelpText"));
++            Automation::AutomationProperties::SetLocalizedControlType(_tabStripSplitter, RS_(L"TabStripResizeHandleControlType"));
++            _tabStripStatusWidth = gsl::narrow_cast<uint32_t>(_tabStripWidth);
++            Automation::AutomationProperties::SetItemStatus(_tabStripSplitter, RS_fmt(L"TabStripResizeHandleWidth", *_tabStripStatusWidth));
++
++            // Keep the 1-DIP divider visually light while the handle overlaps both adjacent surfaces.
++            WUX::Controls::Border splitterVisual;
++            splitterVisual.Width(1);
++            splitterVisual.HorizontalAlignment(WUX::HorizontalAlignment::Center);
++            _tabStripSplitter.Content(splitterVisual);
++
++            // Use a custom cursor via InputSystemCursorShape
++            _tabStripSplitter.ManipulationMode(WUX::Input::ManipulationModes::None);
++
++            // Wire up pointer events for the splitter
++            _tabStripSplitter.PointerEntered([weakThis{ get_weak() }](const auto& sender, const auto&) {
++                if (const auto coreWindow = Windows::UI::Core::CoreWindow::GetForCurrentThread())
++                {
++                    coreWindow.PointerCursor(
++                        Windows::UI::Core::CoreCursor{ Windows::UI::Core::CoreCursorType::SizeWestEast, 0 });
++                }
++                if (const auto page = weakThis.get())
++                {
++                    if (const auto splitter = sender.template as<WUX::Controls::Button>();
++                        const auto visual = splitter.Content().try_as<WUX::Controls::Border>())
++                    {
++                        visual.Background(page->_paneResources.focusedBorderBrush);
++                    }
++                }
++            });
++            _tabStripSplitter.PointerExited([weakThis{ get_weak() }](const auto& sender, const auto&) {
++                if (const auto coreWindow = Windows::UI::Core::CoreWindow::GetForCurrentThread())
++                {
++                    coreWindow.PointerCursor(
++                        Windows::UI::Core::CoreCursor{ Windows::UI::Core::CoreCursorType::Arrow, 0 });
++                }
++                if (const auto page = weakThis.get())
++                {
++                    if (const auto splitter = sender.template as<WUX::Controls::Button>();
++                        const auto visual = splitter.Content().try_as<WUX::Controls::Border>())
++                    {
++                        visual.Background(page->_paneResources.unfocusedBorderBrush);
++                    }
++                }
++            });
++            _tabStripSplitter.AddHandler(
++                WUX::UIElement::PointerPressedEvent(),
++                WUX::Input::PointerEventHandler{ [weakThis{ get_weak() }](const auto& sender, const WUX::Input::PointerRoutedEventArgs& args) {
++                    if (auto page{ weakThis.get() })
++                    {
++                        const auto button = sender.template as<WUX::Controls::Button>();
++                        if (!args.GetCurrentPoint(button).Properties().IsLeftButtonPressed())
++                        {
++                            return;
++                        }
++                        if (page->_splitterPointerId)
++                        {
++                            return;
++                        }
++                        if (!button.CapturePointer(args.Pointer()))
++                        {
++                            return;
++                        }
++                        page->_splitterDragging = true;
++                        page->_splitterPointerId = args.Pointer().PointerId();
++                        page->_splitterDragStartX = args.GetCurrentPoint(page->Root()).Position().X;
++                        // Find the tab strip column width
++                        auto tabStripColIdx = (page->_tabPosition == TabPosition::Left) ? 0u : 2u;
++                        page->_splitterDragStartWidth = page->Root().ColumnDefinitions().GetAt(tabStripColIdx).ActualWidth();
++                        args.Handled(true);
++                    }
++                } }.as<IInspectable>(),
++                true);
++            _tabStripSplitter.PointerMoved([weakThis{ get_weak() }](const auto& /*sender*/, const WUX::Input::PointerRoutedEventArgs& args) {
++                if (auto page{ weakThis.get() })
++                {
++                    if (!page->_splitterDragging ||
++                        !page->_splitterPointerId ||
++                        *page->_splitterPointerId != args.Pointer().PointerId())
++                    {
++                        return;
++                    }
++                    auto currentX = args.GetCurrentPoint(page->Root()).Position().X;
++                    auto delta = currentX - page->_splitterDragStartX;
++                    auto newWidth = (page->_tabPosition == TabPosition::Left) ? (page->_splitterDragStartWidth + delta) : (page->_splitterDragStartWidth - delta);
++                    page->_SetTabStripWidth(newWidth);
++                    args.Handled(true);
++                }
++            });
++            _tabStripSplitter.AddHandler(
++                WUX::UIElement::PointerReleasedEvent(),
++                WUX::Input::PointerEventHandler{ [weakThis{ get_weak() }](const auto& sender, const WUX::Input::PointerRoutedEventArgs& args) {
++                    if (auto page{ weakThis.get() })
++                    {
++                        if (page->_splitterDragging &&
++                            page->_splitterPointerId &&
++                            *page->_splitterPointerId == args.Pointer().PointerId())
++                        {
++                            page->_EndTabStripResize();
++                            auto button = sender.template as<WUX::Controls::Button>();
++                            button.ReleasePointerCapture(args.Pointer());
++                            args.Handled(true);
++                        }
++                    }
++                } }.as<IInspectable>(),
++                true);
++            _tabStripSplitter.PointerCaptureLost([weakThis{ get_weak() }](const auto&, const WUX::Input::PointerRoutedEventArgs& args) {
++                if (const auto page = weakThis.get())
++                {
++                    if (page->_splitterPointerId && *page->_splitterPointerId == args.Pointer().PointerId())
++                    {
++                        page->_EndTabStripResize();
++                    }
++                }
++            });
++            _tabStripSplitter.PointerCanceled([weakThis{ get_weak() }](const auto&, const WUX::Input::PointerRoutedEventArgs& args) {
++                if (const auto page = weakThis.get())
++                {
++                    if (page->_splitterPointerId && *page->_splitterPointerId == args.Pointer().PointerId())
++                    {
++                        page->_EndTabStripResize();
++                    }
++                }
++            });
++            _tabStripSplitter.KeyDown([weakThis{ get_weak() }](const auto&, const WUX::Input::KeyRoutedEventArgs& args) {
++                if (const auto page = weakThis.get())
++                {
++                    if (!page->_ResizeTabStripForKey(args.Key()))
++                    {
++                        return;
++                    }
++                    args.Handled(true);
++                }
++            });
++
++            if (_tabPosition == TabPosition::Left)
++            {
++                root.ColumnDefinitions().Append(tabStripCol);
++                root.ColumnDefinitions().Append(splitterCol);
++                root.ColumnDefinitions().Append(contentCol);
++
++                WUX::Controls::Grid::SetColumn(_tabRow, 0);
++                WUX::Controls::Grid::SetColumn(_tabStripSplitter, 1);
++                WUX::Controls::Grid::SetColumn(contentGrid, 2);
++            }
++            else // Right
++            {
++                root.ColumnDefinitions().Append(contentCol);
++                root.ColumnDefinitions().Append(splitterCol);
++                root.ColumnDefinitions().Append(tabStripCol);
++
++                WUX::Controls::Grid::SetColumn(contentGrid, 0);
++                WUX::Controls::Grid::SetColumn(_tabStripSplitter, 1);
++                WUX::Controls::Grid::SetColumn(_tabRow, 2);
++            }
++
++            // Clear any row assignments from XAML
++            WUX::Controls::Grid::SetRow(_tabRow, 0);
++
++            // Insert layout elements at the front so overlay elements
++            // (command palette, dialogs) remain on top in z-order.
++            root.Children().InsertAt(0, _tabRow);
++            root.Children().InsertAt(1, _tabStripSplitter);
++            root.Children().InsertAt(2, contentGrid);
++
++            // Update remaining overlay children (deferred-load stubs for
++            // CommandPalette, SuggestionsControl, dialogs, InfoBars,
++            // TeachingTips, etc.) so they span all 3 columns and cover the
++            // full width of the page, not just the tab strip column.
++            for (uint32_t i = 3; i < root.Children().Size(); ++i)
++            {
++                auto child = root.Children().GetAt(i);
++                if (const auto& fwe{ child.try_as<WUX::FrameworkElement>() })
++                {
++                    WUX::Controls::Grid::SetColumn(fwe, 0);
++                    WUX::Controls::Grid::SetColumnSpan(fwe, 3);
++                    WUX::Controls::Grid::SetRow(fwe, 0);
++                }
++            }
++
++            // Apply vertical styles to the TabView from our resource dictionary
++            if (const auto resources = Application::Current().Resources())
++            {
++                if (const auto verticalTabViewStyle = resources.Lookup(winrt::box_value(L"VerticalTabViewStyle")))
++                {
++                    _tabView.Style(verticalTabViewStyle.as<WUX::Style>());
++                }
++                // Apply the vertical TabViewItem style as an implicit style
++                // on the TabRow's resources so new tab items pick it up.
++                if (const auto verticalItemStyle = resources.Lookup(winrt::box_value(L"VerticalTabViewItemStyle")))
++                {
++                    auto tabRowResources = _tabRow.Resources();
++                    if (!tabRowResources)
++                    {
++                        tabRowResources = WUX::ResourceDictionary{};
++                        _tabRow.Resources(tabRowResources);
++                    }
++                    auto itemStyleType = winrt::xaml_typename<MUX::Controls::TabViewItem>();
++                    tabRowResources.Insert(winrt::box_value(itemStyleType), verticalItemStyle);
++                }
++            }
++
++            // TabRowControl.xaml uses Bottom for the horizontal titlebar. The
++            // vertical template must stretch so its tab list fills the sidebar
++            // and its footer remains anchored to the bottom.
++            _tabView.VerticalAlignment(WUX::VerticalAlignment::Stretch);
++
++            if (_workspaceDropdown)
++            {
++                _workspaceDropdown.Height(32);
++                _workspaceDropdown.Margin(WUX::Thickness{ 4, 4, 4, 2 });
++                _workspaceDropdown.Padding(WUX::Thickness{ 12, 0, 0, 0 });
++                _workspaceDropdown.VerticalAlignment(WUX::VerticalAlignment::Center);
++            }
++
++            // Bug fix: In vertical mode, give the "new tab" button a text
++            // label ("New tab") next to its "+" icon so it reads naturally
++            // in the wider sidebar.
++            if (_newTabButton)
++            {
++                _newTabButton.Height(32);
++                _newTabButton.Margin(WUX::Thickness{ 4, 4, 4, 8 });
++                _newTabButton.Padding(WUX::Thickness{ 12, 0, 0, 0 });
++                _newTabButton.HorizontalAlignment(WUX::HorizontalAlignment::Stretch);
++                _newTabButton.HorizontalContentAlignment(WUX::HorizontalAlignment::Left);
++                _newTabButton.VerticalAlignment(WUX::VerticalAlignment::Center);
++
++                auto panel = WUX::Controls::StackPanel();
++                panel.Orientation(WUX::Controls::Orientation::Horizontal);
++                panel.Spacing(8);
++
++                WUX::Controls::FontIcon plusIcon{};
++                plusIcon.Glyph(L"\uE710");
++                plusIcon.FontFamily(WUX::Media::FontFamily{ L"Segoe Fluent Icons, Segoe MDL2 Assets" });
++                plusIcon.FontSize(12);
++                panel.Children().Append(plusIcon);
++
++                WUX::Controls::TextBlock label{};
++                label.Text(RS_(L"TabNewButtonText"));
++                label.VerticalAlignment(WUX::VerticalAlignment::Center);
++                label.FontFamily(WUX::Media::FontFamily{ L"Segoe UI" });
++                panel.Children().Append(label);
++
++                _newTabButton.Content(panel);
++            }
++            break;
++        }
++        }
++    }
++
++    bool TerminalPage::_ResizeTabStripForKey(const Windows::System::VirtualKey key)
++    {
++        if (key != Windows::System::VirtualKey::Left && key != Windows::System::VirtualKey::Right)
++        {
++            return false;
++        }
++
++        const auto growsTowardRight = _tabPosition == TabPosition::Left;
++        const auto grow = (key == Windows::System::VirtualKey::Right) == growsTowardRight;
++        _SetTabStripWidth(_tabStripWidth + (grow ? TabStripKeyboardResizeStep : -TabStripKeyboardResizeStep));
++        return true;
++    }
++
++    void TerminalPage::_EndTabStripResize() noexcept
++    {
++        _splitterDragging = false;
++        _splitterPointerId.reset();
++    }
++
++    void TerminalPage::_SetTabStripWidth(const double width)
++    {
++        const auto clampedWidth = std::clamp(width, TabStripMinWidth, TabStripMaxWidth);
++        if (_tabStripWidth == clampedWidth)
++        {
++            return;
++        }
++
++        _tabStripWidth = clampedWidth;
++        const auto tabStripColIdx = _tabPosition == TabPosition::Left ? 0u : 2u;
++        Root().ColumnDefinitions().GetAt(tabStripColIdx).Width(WUX::GridLengthHelper::FromPixels(_tabStripWidth));
++        if (_tabStripSplitter)
++        {
++            const auto statusWidth = gsl::narrow_cast<uint32_t>(_tabStripWidth);
++            if (_tabStripStatusWidth != statusWidth)
++            {
++                _tabStripStatusWidth = statusWidth;
++                Automation::AutomationProperties::SetItemStatus(_tabStripSplitter, RS_fmt(L"TabStripResizeHandleWidth", statusWidth));
++            }
++        }
++    }
++
+     void TerminalPage::Create()
+     {
+         // Hookup the key bindings
+@@ -358,37 +788,10 @@ namespace winrt::TerminalApp::implementation
+             }
+         });
+ 
+-        if (_currentWindowSettings().ShowTabsInTitlebar())
+-        {
+-            // Remove the TabView from the page. We'll hang on to it, we need to
+-            // put it in the titlebar.
+-            uint32_t index = 0;
+-            if (this->Root().Children().IndexOf(_tabRow, index))
+-            {
+-                this->Root().Children().RemoveAt(index);
+-            }
+-
+-            // Inform the host that our titlebar content has changed.
+-            SetTitleBarContent.raise(*this, _tabRow);
++        // Apply the configured tab position. This rearranges the grid
++        // layout and potentially moves the tab row into the titlebar (for Top).
++        _ApplyTabPosition();
+ 
+-            // GH#13143 Manually set the tab row's background to transparent here.
+-            //
+-            // We're doing it this way because ThemeResources are tricky. We
+-            // default in XAML to using the appropriate ThemeResource background
+-            // color for our TabRow. When tabs in the titlebar are _disabled_,
+-            // this will ensure that the tab row has the correct theme-dependent
+-            // value. When tabs in the titlebar are _enabled_ (the default),
+-            // we'll switch the BG to Transparent, to let the Titlebar Control's
+-            // background be used as the BG for the tab row.
+-            //
+-            // We can't do it the other way around (default to Transparent, only
+-            // switch to a color when disabling tabs in the titlebar), because
+-            // looking up the correct ThemeResource from and App dictionary is a
+-            // capital-H Hard problem.
+-            const auto transparent = Media::SolidColorBrush();
+-            transparent.Color(Windows::UI::Colors::Transparent());
+-            _tabRow.Background(transparent);
+-        }
+         _updateThemeColors();
+ 
+         // Initialize the state of the CloseButtonOverlayMode property of
+@@ -5141,7 +5544,7 @@ namespace winrt::TerminalApp::implementation
+             TitlebarBrush(backgroundSolidBrush);
+         }
+ 
+-        if (!_currentWindowSettings().ShowTabsInTitlebar())
++        if (_tabPosition != TabPosition::Top || !_currentWindowSettings().ShowTabsInTitlebar())
+         {
+             _tabRow.Background(TitlebarBrush());
+         }
+@@ -5212,7 +5615,6 @@ namespace winrt::TerminalApp::implementation
+             // will eat focus.
+             _paneResources.focusedBorderBrush = SolidColorBrush{ Colors::Black() };
+         }
+-
+         const auto unfocusedBorderBrushKey = winrt::box_value(L"UnfocusedBorderBrush");
+         if (res.HasKey(unfocusedBorderBrushKey))
+         {
+@@ -5229,6 +5631,14 @@ namespace winrt::TerminalApp::implementation
+             // will eat focus.
+             _paneResources.unfocusedBorderBrush = SolidColorBrush{ Colors::Black() };
+         }
++        if (_tabStripSplitter)
++        {
++            _tabStripSplitter.Background(_paneResources.unfocusedBorderBrush);
++            if (const auto splitterVisual = _tabStripSplitter.Content().try_as<WUX::Controls::Border>())
++            {
++                splitterVisual.Background(_paneResources.unfocusedBorderBrush);
++            }
++        }
+ 
+         const auto broadcastColorKey = winrt::box_value(L"BroadcastPaneBorderColor");
+         if (res.HasKey(broadcastColorKey))
+@@ -6019,10 +6429,11 @@ namespace winrt::TerminalApp::implementation
+         {
+             if (const auto& item{ _tabView.ContainerFromIndex(i).try_as<winrt::MUX::Controls::TabViewItem>() })
+             {
+-                const auto posX{ e.GetPosition(item).X }; // The point of the drop, relative to the tab
+-                const auto itemWidth{ item.ActualWidth() }; // The right of the tab
+-                // If the drag point is on the left half of the tab, then insert here.
+-                if (posX < itemWidth / 2)
++                const auto vertical = _tabPosition == TabPosition::Left || _tabPosition == TabPosition::Right;
++                const auto position = e.GetPosition(item);
++                const auto offset = vertical ? position.Y : position.X;
++                const auto extent = vertical ? item.ActualHeight() : item.ActualWidth();
++                if (offset < extent / 2)
+                 {
+                     index = i;
+                     break;
+diff --git a/src/cascadia/TerminalApp/TerminalPage.h b/src/cascadia/TerminalApp/TerminalPage.h
+index 31e4cd3a1..f730a102e 100644
+--- a/src/cascadia/TerminalApp/TerminalPage.h
++++ b/src/cascadia/TerminalApp/TerminalPage.h
+@@ -224,6 +224,8 @@ namespace winrt::TerminalApp::implementation
+         void SendContentToOther(winrt::TerminalApp::RequestReceiveContentArgs args);
+ 
+         uint32_t NumberOfTabs() const;
++        double TabStripWidth() const noexcept { return _tabStripWidth + TabStripLayoutGutterWidth; }
++        static constexpr double DefaultTabStripWidth() noexcept { return TabStripDefaultWidth + TabStripLayoutGutterWidth; }
+ 
+         til::property_changed_event PropertyChanged;
+ 
+@@ -283,6 +285,9 @@ namespace winrt::TerminalApp::implementation
+         Windows::UI::Xaml::Controls::Button _workspaceDropdown{ nullptr };
+         winrt::TerminalApp::ColorPickupFlyout _tabColorPicker{ nullptr };
+ 
++        Microsoft::Terminal::Settings::Model::TabPosition _tabPosition{ Microsoft::Terminal::Settings::Model::TabPosition::Top };
++        Windows::UI::Xaml::Controls::Button _tabStripSplitter{ nullptr };
++
+         Microsoft::Terminal::Settings::Model::CascadiaSettings _settings{ nullptr };
+ 
+         Windows::Foundation::Collections::IObservableVector<TerminalApp::Tab> _tabs;
+@@ -299,6 +304,24 @@ namespace winrt::TerminalApp::implementation
+         bool _isAlwaysOnTop{ false };
+         bool _showTabsFullscreen{ false };
+ 
++        static constexpr double TabStripMinWidth = 100.0;
++        static constexpr double TabStripMaxWidth = 400.0;
++        static constexpr double TabStripDefaultWidth = 200.0;
++        static constexpr double TabStripLayoutGutterWidth = 4.0;
++        static constexpr double TabStripResizeHandleWidth = 12.0;
++        static constexpr double TabStripKeyboardResizeStep = 10.0;
++
++        // Splitter drag state for left/right tab positions
++        bool _splitterDragging{ false };
++        double _splitterDragStartX{ 0.0 };
++        double _splitterDragStartWidth{ 0.0 };
++        double _tabStripWidth{ TabStripDefaultWidth };
++        std::optional<uint32_t> _splitterPointerId;
++        std::optional<uint32_t> _tabStripStatusWidth;
++        void _SetTabStripWidth(double width);
++        bool _ResizeTabStripForKey(Windows::System::VirtualKey key);
++        void _EndTabStripResize() noexcept;
++
+         std::optional<uint32_t> _loadFromPersistedLayoutIdx{};
+ 
+         bool _rearranging{ false };
+@@ -400,6 +423,7 @@ namespace winrt::TerminalApp::implementation
+         void _UpdateTabIcon(Tab& tab);
+         void _UpdateTabView();
+         void _UpdateTabWidthMode();
++        void _ApplyTabPosition();
+         void _SetBackgroundImage(const winrt::Microsoft::Terminal::Settings::Model::IAppearanceConfig& newAppearance);
+ 
+         void _DuplicateFocusedTab();
+diff --git a/src/cascadia/TerminalApp/TerminalPage.xaml b/src/cascadia/TerminalApp/TerminalPage.xaml
+index e41eed9a4..614a1720b 100644
+--- a/src/cascadia/TerminalApp/TerminalPage.xaml
++++ b/src/cascadia/TerminalApp/TerminalPage.xaml
+@@ -25,7 +25,8 @@
+                              Grid.Row="0"
+                              KeyUp="_KeyDownHandler" />
+ 
+-        <StackPanel Grid.Row="1"
++        <StackPanel x:Name="InfoBarPanel"
++                    Grid.Row="1"
+                     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+             <mux:InfoBar x:Name="CloseOnExitInfoBar"
+                          x:Uid="CloseOnExitInfoBar"
+@@ -70,10 +71,12 @@
+ 
+         <local:AboutDialog x:Name="AboutDialog"
+                            Grid.Row="2"
++                           Grid.ColumnSpan="3"
+                            x:Load="False" />
+ 
+         <ContentDialog x:Name="ConfirmCloseDialog"
+                        Grid.Row="2"
++                       Grid.ColumnSpan="3"
+                        x:Load="False"
+                        DefaultButton="Primary">
+             <CheckBox x:Uid="DontAskAgainCheckBox" />
+@@ -82,12 +85,14 @@
+         <ContentDialog x:Name="CloseReadOnlyDialog"
+                        x:Uid="CloseReadOnlyDialog"
+                        Grid.Row="2"
++                       Grid.ColumnSpan="3"
+                        x:Load="False"
+                        DefaultButton="Close" />
+ 
+         <ContentDialog x:Name="MultiLinePasteDialog"
+                        x:Uid="MultiLinePasteDialog"
+                        Grid.Row="2"
++                       Grid.ColumnSpan="3"
+                        x:Load="False"
+                        DefaultButton="Primary">
+             <StackPanel>
+@@ -108,12 +113,14 @@
+         <ContentDialog x:Name="LargePasteDialog"
+                        x:Uid="LargePasteDialog"
+                        Grid.Row="2"
++                       Grid.ColumnSpan="3"
+                        x:Load="False"
+                        DefaultButton="Primary" />
+ 
+         <ContentDialog x:Name="ControlNoticeDialog"
+                        x:Uid="ControlNoticeDialog"
+                        Grid.Row="2"
++                       Grid.ColumnSpan="3"
+                        x:Load="False"
+                        DefaultButton="Primary">
+             <TextBlock IsTextSelectionEnabled="True"
+@@ -128,6 +135,7 @@
+         <ContentDialog x:Name="UriErrorDialog"
+                        x:Uid="UriErrorDialog"
+                        Grid.Row="2"
++                       Grid.ColumnSpan="3"
+                        x:Load="False"
+                        DefaultButton="Close">
+             <TextBlock IsTextSelectionEnabled="True"
+@@ -143,6 +151,7 @@
+ 
+         <local:CommandPalette x:Name="CommandPaletteElement"
+                               Grid.Row="2"
++                              Grid.ColumnSpan="3"
+                               VerticalAlignment="Stretch"
+                               x:Load="False"
+                               PreviewKeyDown="_KeyDownHandler"
+@@ -150,6 +159,7 @@
+ 
+         <local:SuggestionsControl x:Name="SuggestionsElement"
+                                   Grid.Row="2"
++                                  Grid.ColumnSpan="3"
+                                   HorizontalAlignment="Left"
+                                   VerticalAlignment="Top"
+                                   x:Load="False"
+diff --git a/src/cascadia/TerminalApp/TerminalWindow.cpp b/src/cascadia/TerminalApp/TerminalWindow.cpp
+index d9fb4df2e..961336a33 100644
+--- a/src/cascadia/TerminalApp/TerminalWindow.cpp
++++ b/src/cascadia/TerminalApp/TerminalWindow.cpp
+@@ -137,6 +137,7 @@ namespace winrt::TerminalApp::implementation
+     {
+         // The TerminalPage has to ABSOLUTELY NOT BE constructed during our
+         // construction. We can't do ANY xaml till Initialize() is called.
++        _tabPosition = _currentWindowSettings().TabPosition();
+ 
+         // For your own sanity, it's better to do setup outside the ctor.
+         // If you do any setup in the ctor that ends up throwing an exception,
+@@ -282,7 +283,8 @@ namespace winrt::TerminalApp::implementation
+ 
+     bool TerminalWindow::GetShowTabsInTitlebar()
+     {
+-        return _currentWindowSettings().ShowTabsInTitlebar();
++        return _tabPosition == Microsoft::Terminal::Settings::Model::TabPosition::Top &&
++               _currentWindowSettings().ShowTabsInTitlebar();
+     }
+ 
+     bool TerminalWindow::GetInitialAlwaysOnTop()
+@@ -607,7 +609,10 @@ namespace winrt::TerminalApp::implementation
+         // GH#2061 - If the global setting "Always show tab bar" is
+         // set or if "Show tabs in title bar" is set, then we'll need to add
+         // the height of the tab bar here.
+-        if (_currentWindowSettings().ShowTabsInTitlebar() && !focusMode)
++        const auto tabPosition = _tabPosition;
++        const auto tabsAlwaysVisible = GetShowTabsInTitlebar() ||
++                                       _currentWindowSettings().AlwaysShowTabs();
++        if (GetShowTabsInTitlebar() && !focusMode)
+         {
+             // In the past, we used to actually instantiate a TitlebarControl
+             // and use Measure() to determine the DesiredSize of the control, to
+@@ -625,7 +630,7 @@ namespace winrt::TerminalApp::implementation
+             static constexpr auto titlebarHeight = 40;
+             proposedSize.Height += (titlebarHeight)*scale;
+         }
+-        else if (_currentWindowSettings().AlwaysShowTabs() && !focusMode)
++        else if (tabsAlwaysVisible && !focusMode)
+         {
+             // Same comment as above, but with a TabRowControl.
+             //
+@@ -633,8 +638,16 @@ namespace winrt::TerminalApp::implementation
+             // unaccounted-for space in the application. I couldn't tell you
+             // where these 10px are coming from, but they need to be included in
+             // this math.
+-            static constexpr auto tabRowHeight = 32;
+-            proposedSize.Height += (tabRowHeight + 10) * scale;
++            if (tabPosition == Microsoft::Terminal::Settings::Model::TabPosition::Left ||
++                tabPosition == Microsoft::Terminal::Settings::Model::TabPosition::Right)
++            {
++                proposedSize.Width += static_cast<float>(TerminalPage::DefaultTabStripWidth()) * scale;
++            }
++            else
++            {
++                static constexpr auto tabRowHeight = 32;
++                proposedSize.Height += (tabRowHeight + 10) * scale;
++            }
+         }
+ 
+         return proposedSize;
+@@ -1324,17 +1337,29 @@ namespace winrt::TerminalApp::implementation
+ 
+         if (!FocusMode())
+         {
+-            if (!_currentWindowSettings().AlwaysShowTabs())
++            const auto tabPosition = _tabPosition;
++            const auto tabsAlwaysVisible = GetShowTabsInTitlebar() ||
++                                           _currentWindowSettings().AlwaysShowTabs();
++            if (!tabsAlwaysVisible)
+             {
+                 // Hide the title bar = off, Always show tabs = off.
+                 static constexpr auto titlebarHeight = 10;
+                 pixelSize.Height += (titlebarHeight)*scale;
+             }
+-            else if (!_currentWindowSettings().ShowTabsInTitlebar())
++            else if (!GetShowTabsInTitlebar())
+             {
+-                // Hide the title bar = off, Always show tabs = on.
+-                static constexpr auto titlebarAndTabBarHeight = 40;
+-                pixelSize.Height += (titlebarAndTabBarHeight)*scale;
++                if (tabPosition == Microsoft::Terminal::Settings::Model::TabPosition::Left ||
++                    tabPosition == Microsoft::Terminal::Settings::Model::TabPosition::Right)
++                {
++                    const auto tabStripWidth = _root ? _root->TabStripWidth() : TerminalPage::DefaultTabStripWidth();
++                    pixelSize.Width += static_cast<float>(tabStripWidth) * scale;
++                }
++                else
++                {
++                    // Hide the title bar = off, Always show tabs = on.
++                    static constexpr auto titlebarAndTabBarHeight = 40;
++                    pixelSize.Height += (titlebarAndTabBarHeight)*scale;
++                }
+             }
+             // Hide the title bar = on, Always show tabs = on.
+             // In this case, we don't add any height because
+diff --git a/src/cascadia/TerminalApp/TerminalWindow.h b/src/cascadia/TerminalApp/TerminalWindow.h
+index b75452f7a..9c88f171d 100644
+--- a/src/cascadia/TerminalApp/TerminalWindow.h
++++ b/src/cascadia/TerminalApp/TerminalWindow.h
+@@ -186,6 +186,7 @@ namespace winrt::TerminalApp::implementation
+         std::optional<winrt::Microsoft::Terminal::Settings::Model::WindowLayout> _cachedLayout{ std::nullopt };
+ 
+         Microsoft::Terminal::Settings::Model::CascadiaSettings _settings{ nullptr };
++        Microsoft::Terminal::Settings::Model::TabPosition _tabPosition{ Microsoft::Terminal::Settings::Model::TabPosition::Top };
+         TerminalApp::SettingsLoadEventArgs _initialLoadResult{ nullptr };
+ 
+         TerminalApp::ContentManager _manager{ nullptr };
+diff --git a/src/cascadia/TerminalApp/VerticalTabViewStyle.xaml b/src/cascadia/TerminalApp/VerticalTabViewStyle.xaml
+new file mode 100644
+index 000000000..efa523ab3
+--- /dev/null
++++ b/src/cascadia/TerminalApp/VerticalTabViewStyle.xaml
+@@ -0,0 +1,304 @@
++﻿<!--
++    Copyright (c) Microsoft Corporation. All rights reserved. Licensed under
++    the MIT License. See LICENSE in the project root for license information.
++
++    Retemplated styles for vertical (Left/Right) tab strip orientation.
++    These styles override the horizontal TabView layout to stack tabs vertically
++    in a sidebar configuration.
++-->
++<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
++                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
++                    xmlns:mux="using:Microsoft.UI.Xaml.Controls"
++                    xmlns:primitives="using:Microsoft.UI.Xaml.Controls.Primitives">
++
++    <!--
++        VerticalTabViewListViewStyle:
++        Override the ItemsPanel to use vertical orientation and switch scrolling
++        from horizontal to vertical.
++    -->
++    <Style x:Key="VerticalTabViewListViewStyle"
++           TargetType="primitives:TabViewListView">
++        <Setter Property="TabNavigation" Value="Once" />
++        <Setter Property="IsItemClickEnabled" Value="True" />
++        <Setter Property="IsSwipeEnabled" Value="False" />
++        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
++        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto" />
++        <Setter Property="ScrollViewer.HorizontalScrollMode" Value="Disabled" />
++        <Setter Property="ScrollViewer.VerticalScrollMode" Value="Enabled" />
++        <Setter Property="ScrollViewer.IsHorizontalRailEnabled" Value="False" />
++        <Setter Property="ScrollViewer.IsVerticalRailEnabled" Value="True" />
++        <Setter Property="SingleSelectionFollowsFocus" Value="False" />
++        <Setter Property="ItemContainerTransitions">
++            <Setter.Value>
++                <TransitionCollection>
++                    <AddDeleteThemeTransition />
++                    <ContentThemeTransition />
++                    <ReorderThemeTransition />
++                </TransitionCollection>
++            </Setter.Value>
++        </Setter>
++        <Setter Property="ItemsPanel">
++            <Setter.Value>
++                <ItemsPanelTemplate>
++                    <ItemsStackPanel Orientation="Vertical" />
++                </ItemsPanelTemplate>
++            </Setter.Value>
++        </Setter>
++    </Style>
++
++    <!--
++        VerticalTabViewStyle:
++        Retemplate the TabView control for a vertical sidebar layout.
++        Instead of 4 columns in TabContainerGrid, we use 3 rows:
++        Row 0 (Auto): Header (elevation shield)
++        Row 1 (*):    Tab list (fills vertical space)
++        Row 2 (Auto): Footer (new tab button)
++        The TabContentPresenter is removed — WT doesn't use it.
++    -->
++    <Style x:Key="VerticalTabViewStyle"
++           TargetType="mux:TabView">
++        <Setter Property="VerticalAlignment" Value="Stretch" />
++        <Setter Property="HorizontalAlignment" Value="Stretch" />
++        <Setter Property="IsTabStop" Value="False" />
++        <Setter Property="TabNavigation" Value="Once" />
++        <Setter Property="IsAddTabButtonVisible" Value="False" />
++        <Setter Property="Background" Value="Transparent" />
++        <Setter Property="Template">
++            <Setter.Value>
++                <ControlTemplate TargetType="mux:TabView">
++                    <Grid x:Name="TabContainerGrid">
++                        <Grid.RowDefinitions>
++                            <RowDefinition Height="Auto" />
++                            <RowDefinition Height="*" />
++                            <RowDefinition Height="Auto" />
++                        </Grid.RowDefinitions>
++
++                        <!--  Header (elevation shield, etc.)  -->
++                        <ContentPresenter x:Name="LeftContentPresenter"
++                                          Grid.Row="0"
++                                          Content="{TemplateBinding TabStripHeader}"
++                                          ContentTemplate="{TemplateBinding TabStripHeaderTemplate}" />
++
++                        <!--  Tab list  -->
++                        <primitives:TabViewListView x:Name="TabListView"
++                                                    Grid.Row="1"
++                                                    AllowDrop="{TemplateBinding AllowDropTabs}"
++                                                    CanDragItems="{TemplateBinding CanDragTabs}"
++                                                    CanReorderItems="{TemplateBinding CanReorderTabs}"
++                                                    ItemTemplate="{TemplateBinding TabItemTemplate}"
++                                                    ItemTemplateSelector="{TemplateBinding TabItemTemplateSelector}"
++                                                    ItemsSource="{TemplateBinding TabItemsSource}"
++                                                    SelectedItem="{TemplateBinding SelectedItem}"
++                                                    Style="{StaticResource VerticalTabViewListViewStyle}" />
++
++                        <!--  Footer (new tab button)  -->
++                        <ContentPresenter x:Name="RightContentPresenter"
++                                          Grid.Row="2"
++                                          Content="{TemplateBinding TabStripFooter}"
++                                          ContentTemplate="{TemplateBinding TabStripFooterTemplate}" />
++                    </Grid>
++                </ControlTemplate>
++            </Setter.Value>
++        </Setter>
++    </Style>
++
++    <!--
++        VerticalTabViewItemStyle:
++        Simplified TabViewItem template for vertical tabs.
++        Removes curved corner arcs, replaces with rounded Border and a
++        left-edge accent bar for the selected tab. Tabs fill strip width.
++    -->
++    <Style x:Key="VerticalTabViewItemStyle"
++           TargetType="mux:TabViewItem">
++        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
++        <Setter Property="MinHeight" Value="{ThemeResource TabViewItemMinHeight}" />
++        <Setter Property="UseSystemFocusVisuals" Value="{StaticResource UseSystemFocusVisuals}" />
++        <Setter Property="Padding" Value="8,4,8,4" />
++        <Setter Property="Template">
++            <Setter.Value>
++                <ControlTemplate TargetType="mux:TabViewItem">
++                    <Grid x:Name="LayoutRoot"
++                          Margin="4,2">
++                        <!--  Selected tab background  -->
++                        <Border x:Name="TabContainer"
++                                Padding="{TemplateBinding Padding}"
++                                Background="{TemplateBinding Background}"
++                                CornerRadius="{ThemeResource ControlCornerRadius}">
++                            <Grid>
++                                <Grid.ColumnDefinitions>
++                                    <ColumnDefinition x:Name="IconColumn"
++                                                      Width="Auto" />
++                                    <ColumnDefinition Width="*" />
++                                    <ColumnDefinition Width="Auto" />
++                                </Grid.ColumnDefinitions>
++
++                                <!--  Tab icon  -->
++                                <Viewbox x:Name="IconBox"
++                                         Grid.Column="0"
++                                         MaxWidth="16"
++                                         MaxHeight="16"
++                                         Margin="0,0,8,0">
++                                    <ContentControl x:Name="IconControl"
++                                                    Content="{Binding RelativeSource={RelativeSource TemplatedParent}, Path=TabViewTemplateSettings.IconElement}"
++                                                    Foreground="{ThemeResource TabViewItemHeaderForeground}"
++                                                    HighContrastAdjustment="None"
++                                                    IsTabStop="False" />
++                                </Viewbox>
++
++                                <!--  Tab title  -->
++                                <ContentPresenter x:Name="ContentPresenter"
++                                                  Grid.Column="1"
++                                                  HorizontalAlignment="Left"
++                                                  VerticalAlignment="Center"
++                                                  Content="{TemplateBinding Header}"
++                                                  ContentTemplate="{TemplateBinding HeaderTemplate}"
++                                                  ContentTransitions="{TemplateBinding ContentTransitions}"
++                                                  FontWeight="{TemplateBinding FontWeight}"
++                                                  Foreground="{ThemeResource TabViewItemHeaderForeground}"
++                                                  OpticalMarginAlignment="TrimSideBearings"
++                                                  TextWrapping="NoWrap" />
++
++                                <!--  Close button  -->
++                                <Button x:Name="CloseButton"
++                                        Grid.Column="2"
++                                        Width="24"
++                                        Height="24"
++                                        Margin="4,0,0,0"
++                                        Padding="0"
++                                        HorizontalAlignment="Right"
++                                        VerticalAlignment="Center"
++                                        Background="Transparent"
++                                        BorderBrush="Transparent"
++                                        BorderThickness="{ThemeResource TabViewItemHeaderCloseButtonBorderThickness}"
++                                        Content="&#xE711;"
++                                        FontFamily="{ThemeResource SymbolThemeFontFamily}"
++                                        FontSize="10"
++                                        Foreground="{ThemeResource TabViewItemHeaderCloseButtonForeground}"
++                                        HighContrastAdjustment="None"
++                                        IsTabStop="False"
++                                        IsTextScaleFactorEnabled="False" />
++                            </Grid>
++                        </Border>
++
++                        <!--  Left-edge accent bar for selected tab  -->
++                        <Border x:Name="SelectedIndicator"
++                                Width="3"
++                                Height="16"
++                                HorizontalAlignment="Left"
++                                VerticalAlignment="Center"
++                                Background="{ThemeResource AccentFillColorDefaultBrush}"
++                                CornerRadius="2"
++                                Opacity="0" />
++
++                        <VisualStateManager.VisualStateGroups>
++                            <VisualStateGroup x:Name="CommonStates">
++                                <VisualState x:Name="Normal">
++                                    <VisualState.Setters>
++                                        <Setter Target="SelectedIndicator.Opacity" Value="0" />
++                                    </VisualState.Setters>
++                                </VisualState>
++
++                                <VisualState x:Name="PointerOver">
++                                    <VisualState.Setters>
++                                        <Setter Target="TabContainer.Background" Value="{ThemeResource TabViewItemHeaderBackgroundPointerOver}" />
++                                        <Setter Target="ContentPresenter.Foreground" Value="{ThemeResource TabViewItemHeaderForegroundPointerOver}" />
++                                        <Setter Target="IconControl.Foreground" Value="{ThemeResource TabViewItemHeaderForegroundPointerOver}" />
++                                        <Setter Target="CloseButton.Background" Value="{ThemeResource TabViewItemHeaderPointerOverCloseButtonBackground}" />
++                                        <Setter Target="CloseButton.Foreground" Value="{ThemeResource TabViewItemHeaderPointerOverCloseButtonForeground}" />
++                                        <Setter Target="CloseButton.BorderBrush" Value="{ThemeResource TabViewItemHeaderCloseButtonBorderBrushPointerOver}" />
++                                        <Setter Target="SelectedIndicator.Opacity" Value="0" />
++                                    </VisualState.Setters>
++                                </VisualState>
++
++                                <VisualState x:Name="Pressed">
++                                    <VisualState.Setters>
++                                        <Setter Target="TabContainer.Background" Value="{ThemeResource TabViewItemHeaderBackgroundPressed}" />
++                                        <Setter Target="ContentPresenter.Foreground" Value="{ThemeResource TabViewItemHeaderForegroundPressed}" />
++                                        <Setter Target="IconControl.Foreground" Value="{ThemeResource TabViewItemHeaderForegroundPressed}" />
++                                        <Setter Target="CloseButton.Background" Value="{ThemeResource TabViewItemHeaderPressedCloseButtonBackground}" />
++                                        <Setter Target="CloseButton.Foreground" Value="{ThemeResource TabViewItemHeaderPressedCloseButtonForeground}" />
++                                        <Setter Target="CloseButton.BorderBrush" Value="{ThemeResource TabViewItemHeaderCloseButtonBorderBrushPressed}" />
++                                        <Setter Target="SelectedIndicator.Opacity" Value="0" />
++                                    </VisualState.Setters>
++                                </VisualState>
++
++                                <VisualState x:Name="Selected">
++                                    <VisualState.Setters>
++                                        <Setter Target="TabContainer.Background" Value="{ThemeResource TabViewItemHeaderBackgroundSelected}" />
++                                        <Setter Target="ContentPresenter.Foreground" Value="{ThemeResource TabViewItemHeaderForegroundSelected}" />
++                                        <Setter Target="IconControl.Foreground" Value="{ThemeResource TabViewItemHeaderForegroundSelected}" />
++                                        <Setter Target="CloseButton.Background" Value="{ThemeResource TabViewItemHeaderSelectedCloseButtonBackground}" />
++                                        <Setter Target="CloseButton.Foreground" Value="{ThemeResource TabViewItemHeaderSelectedCloseButtonForeground}" />
++                                        <Setter Target="CloseButton.BorderBrush" Value="{ThemeResource TabViewItemHeaderCloseButtonBorderBrushSelected}" />
++                                        <Setter Target="ContentPresenter.FontWeight" Value="SemiBold" />
++                                        <Setter Target="SelectedIndicator.Opacity" Value="1" />
++                                    </VisualState.Setters>
++                                </VisualState>
++
++                                <VisualState x:Name="PointerOverSelected">
++                                    <VisualState.Setters>
++                                        <Setter Target="TabContainer.Background" Value="{ThemeResource TabViewItemHeaderBackgroundSelected}" />
++                                        <Setter Target="ContentPresenter.Foreground" Value="{ThemeResource TabViewItemHeaderForegroundSelected}" />
++                                        <Setter Target="IconControl.Foreground" Value="{ThemeResource TabViewItemHeaderForegroundSelected}" />
++                                        <Setter Target="CloseButton.Background" Value="{ThemeResource TabViewItemHeaderSelectedCloseButtonBackground}" />
++                                        <Setter Target="CloseButton.Foreground" Value="{ThemeResource TabViewItemHeaderSelectedCloseButtonForeground}" />
++                                        <Setter Target="CloseButton.BorderBrush" Value="{ThemeResource TabViewItemHeaderCloseButtonBorderBrushSelected}" />
++                                        <Setter Target="ContentPresenter.FontWeight" Value="SemiBold" />
++                                        <Setter Target="SelectedIndicator.Opacity" Value="1" />
++                                    </VisualState.Setters>
++                                </VisualState>
++
++                                <VisualState x:Name="PressedSelected">
++                                    <VisualState.Setters>
++                                        <Setter Target="TabContainer.Background" Value="{ThemeResource TabViewItemHeaderBackgroundPressed}" />
++                                        <Setter Target="ContentPresenter.Foreground" Value="{ThemeResource TabViewItemHeaderForegroundSelected}" />
++                                        <Setter Target="IconControl.Foreground" Value="{ThemeResource TabViewItemHeaderForegroundSelected}" />
++                                        <Setter Target="CloseButton.Background" Value="{ThemeResource TabViewItemHeaderPressedCloseButtonBackground}" />
++                                        <Setter Target="CloseButton.Foreground" Value="{ThemeResource TabViewItemHeaderPressedCloseButtonForeground}" />
++                                        <Setter Target="CloseButton.BorderBrush" Value="{ThemeResource TabViewItemHeaderCloseButtonBorderBrushPressed}" />
++                                        <Setter Target="ContentPresenter.FontWeight" Value="SemiBold" />
++                                        <Setter Target="SelectedIndicator.Opacity" Value="1" />
++                                    </VisualState.Setters>
++                                </VisualState>
++                            </VisualStateGroup>
++
++                            <VisualStateGroup x:Name="CloseIconStates">
++                                <VisualState x:Name="CloseButtonVisible" />
++                                <VisualState x:Name="CloseButtonCollapsed">
++                                    <VisualState.Setters>
++                                        <Setter Target="CloseButton.Visibility" Value="Collapsed" />
++                                    </VisualState.Setters>
++                                </VisualState>
++                            </VisualStateGroup>
++
++                            <VisualStateGroup x:Name="TabWidthModes">
++                                <!--  In vertical mode, tabs always stretch to full width  -->
++                                <VisualState x:Name="StandardWidth" />
++                                <VisualState x:Name="Compact" />
++                            </VisualStateGroup>
++
++                            <VisualStateGroup x:Name="IconStates">
++                                <VisualState x:Name="Icon" />
++                                <VisualState x:Name="NoIcon">
++                                    <VisualState.Setters>
++                                        <Setter Target="IconBox.Visibility" Value="Collapsed" />
++                                    </VisualState.Setters>
++                                </VisualState>
++                            </VisualStateGroup>
++
++                            <VisualStateGroup x:Name="DisabledStates">
++                                <VisualState x:Name="Enabled" />
++                                <VisualState x:Name="Disabled">
++                                    <VisualState.Setters>
++                                        <Setter Target="LayoutRoot.Opacity" Value="{ThemeResource ListViewItemDisabledThemeOpacity}" />
++                                    </VisualState.Setters>
++                                </VisualState>
++                            </VisualStateGroup>
++                        </VisualStateManager.VisualStateGroups>
++                    </Grid>
++                </ControlTemplate>
++            </Setter.Value>
++        </Setter>
++    </Style>
++
++</ResourceDictionary>
+diff --git a/src/cascadia/TerminalSettingsEditor/GlobalAppearance.xaml b/src/cascadia/TerminalSettingsEditor/GlobalAppearance.xaml
+index 1c60d9201..b356f7b82 100644
+--- a/src/cascadia/TerminalSettingsEditor/GlobalAppearance.xaml
++++ b/src/cascadia/TerminalSettingsEditor/GlobalAppearance.xaml
+@@ -53,6 +53,16 @@
+                       Style="{StaticResource ComboBoxSettingStyle}" />
+         </local:SettingsCard>
+ 
++        <!--  Position of tab row  -->
++        <local:SettingsCard x:Name="TabPosition"
++                            x:Uid="Globals_TabPosition">
++            <ComboBox AutomationProperties.AccessibilityView="Content"
++                      ItemTemplate="{StaticResource EnumComboBoxTemplate}"
++                      ItemsSource="{x:Bind ViewModel.TabPositionList, Mode=OneWay}"
++                      SelectedItem="{x:Bind ViewModel.CurrentTabPosition, Mode=TwoWay}"
++                      Style="{StaticResource ComboBoxSettingStyle}" />
++        </local:SettingsCard>
++
+         <!--  Show Titlebar  -->
+         <local:SettingsCard x:Name="ShowTitlebar"
+                             x:Uid="Globals_ShowTitlebar">
+@@ -64,7 +74,7 @@
+         <!--  Always show tabs  -->
+         <local:SettingsCard x:Name="AlwaysShowTabs"
+                             x:Uid="Globals_AlwaysShowTabs"
+-                            IsEnabled="{x:Bind mtu:Converters.InvertBoolean(ViewModel.ShowTabsInTitlebar), Mode=OneWay}">
++                            IsEnabled="{x:Bind ViewModel.IsAlwaysShowTabsEnabled(ViewModel.ShowTabsInTitlebar, ViewModel.CurrentTabPosition), Mode=OneWay}">
+             <ToggleSwitch IsOn="{x:Bind ViewModel.AlwaysShowTabs, Mode=TwoWay}"
+                           Style="{StaticResource ToggleSwitchInExpanderStyle}" />
+         </local:SettingsCard>
+diff --git a/src/cascadia/TerminalSettingsEditor/GlobalAppearanceViewModel.cpp b/src/cascadia/TerminalSettingsEditor/GlobalAppearanceViewModel.cpp
+index a4970c547..564788279 100644
+--- a/src/cascadia/TerminalSettingsEditor/GlobalAppearanceViewModel.cpp
++++ b/src/cascadia/TerminalSettingsEditor/GlobalAppearanceViewModel.cpp
+@@ -28,6 +28,7 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+         _ThemeList{ single_threaded_observable_vector<Model::Theme>() }
+     {
+         INITIALIZE_BINDABLE_ENUM_SETTING(NewTabPosition, NewTabPosition, NewTabPosition, L"Globals_NewTabPosition", L"Content");
++        INITIALIZE_BINDABLE_ENUM_SETTING(TabPosition, TabPosition, TabPosition, L"Globals_TabPosition", L"Content");
+         INITIALIZE_BINDABLE_ENUM_SETTING(TabWidthMode, TabViewWidthMode, winrt::Microsoft::UI::Xaml::Controls::TabViewWidthMode, L"Globals_TabWidthMode", L"Content");
+         _UpdateThemeList();
+     }
+@@ -45,6 +46,35 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+         }
+     }
+ 
++    Windows::Foundation::Collections::IObservableVector<Editor::EnumEntry> GlobalAppearanceViewModel::TabPositionList()
++    {
++        return _TabPositionList;
++    }
++
++    Windows::Foundation::IInspectable GlobalAppearanceViewModel::CurrentTabPosition()
++    {
++        return box_value<Editor::EnumEntry>(_TabPositionMap.Lookup(_WindowSettings.TabPosition()));
++    }
++
++    void GlobalAppearanceViewModel::CurrentTabPosition(const Windows::Foundation::IInspectable& enumEntry)
++    {
++        if (const auto entry = enumEntry.try_as<Editor::EnumEntry>())
++        {
++            _WindowSettings.TabPosition(unbox_value<Model::TabPosition>(entry.EnumValue()));
++            _NotifyChanges(L"CurrentTabPosition");
++        }
++    }
++
++    bool GlobalAppearanceViewModel::IsAlwaysShowTabsEnabled(const bool showTabsInTitlebar,
++                                                            const Windows::Foundation::IInspectable& tabPosition)
++    {
++        if (const auto entry = tabPosition.try_as<Editor::EnumEntry>())
++        {
++            return !showTabsInTitlebar || unbox_value<Model::TabPosition>(entry.EnumValue()) != Model::TabPosition::Top;
++        }
++        return !showTabsInTitlebar;
++    }
++
+     winrt::Windows::Foundation::IInspectable GlobalAppearanceViewModel::CurrentTheme()
+     {
+         return _GlobalSettings.CurrentTheme(_WindowSettings);
+diff --git a/src/cascadia/TerminalSettingsEditor/GlobalAppearanceViewModel.h b/src/cascadia/TerminalSettingsEditor/GlobalAppearanceViewModel.h
+index e35398e18..1ad79ce57 100644
+--- a/src/cascadia/TerminalSettingsEditor/GlobalAppearanceViewModel.h
++++ b/src/cascadia/TerminalSettingsEditor/GlobalAppearanceViewModel.h
+@@ -21,6 +21,12 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+         GETSET_BINDABLE_ENUM_SETTING(NewTabPosition, Model::NewTabPosition, _WindowSettings.NewTabPosition);
+         GETSET_BINDABLE_ENUM_SETTING(TabWidthMode, winrt::Microsoft::UI::Xaml::Controls::TabViewWidthMode, _WindowSettings.TabWidthMode);
+ 
++    public:
++        Windows::Foundation::Collections::IObservableVector<Editor::EnumEntry> TabPositionList();
++        Windows::Foundation::IInspectable CurrentTabPosition();
++        void CurrentTabPosition(const Windows::Foundation::IInspectable& enumEntry);
++        bool IsAlwaysShowTabsEnabled(bool showTabsInTitlebar, const Windows::Foundation::IInspectable& tabPosition);
++
+     public:
+         winrt::Windows::Foundation::IInspectable CurrentTheme();
+         void CurrentTheme(const winrt::Windows::Foundation::IInspectable& tag);
+@@ -47,6 +53,8 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+         Model::GlobalAppSettings _GlobalSettings;
+         Model::WindowSettings _WindowSettings;
+         winrt::Windows::Foundation::IInspectable _currentTheme;
++        Windows::Foundation::Collections::IObservableVector<Editor::EnumEntry> _TabPositionList;
++        Windows::Foundation::Collections::IMap<Model::TabPosition, Editor::EnumEntry> _TabPositionMap;
+ 
+         void _UpdateThemeList();
+     };
+diff --git a/src/cascadia/TerminalSettingsEditor/GlobalAppearanceViewModel.idl b/src/cascadia/TerminalSettingsEditor/GlobalAppearanceViewModel.idl
+index 825a12994..25d49c518 100644
+--- a/src/cascadia/TerminalSettingsEditor/GlobalAppearanceViewModel.idl
++++ b/src/cascadia/TerminalSettingsEditor/GlobalAppearanceViewModel.idl
+@@ -18,6 +18,10 @@ namespace Microsoft.Terminal.Settings.Editor
+         IInspectable CurrentNewTabPosition;
+         Windows.Foundation.Collections.IObservableVector<Microsoft.Terminal.Settings.Editor.EnumEntry> NewTabPositionList { get; };
+ 
++        IInspectable CurrentTabPosition;
++        Windows.Foundation.Collections.IObservableVector<Microsoft.Terminal.Settings.Editor.EnumEntry> TabPositionList { get; };
++        Boolean IsAlwaysShowTabsEnabled(Boolean showTabsInTitlebar, IInspectable tabPosition);
++
+         IInspectable CurrentTabWidthMode;
+         Windows.Foundation.Collections.IObservableVector<Microsoft.Terminal.Settings.Editor.EnumEntry> TabWidthModeList { get; };
+ 
+diff --git a/src/cascadia/TerminalSettingsEditor/Resources/en-US/Resources.resw b/src/cascadia/TerminalSettingsEditor/Resources/en-US/Resources.resw
+index 2a2d6d296..0d33995a2 100644
+--- a/src/cascadia/TerminalSettingsEditor/Resources/en-US/Resources.resw
++++ b/src/cascadia/TerminalSettingsEditor/Resources/en-US/Resources.resw
+@@ -249,8 +249,8 @@
+     <comment>Header for a control to toggle if the app should always show the tabs (similar to a website browser).</comment>
+   </data>
+   <data name="Globals_AlwaysShowTabs.Description" xml:space="preserve">
+-    <value>When disabled, the tab bar will appear when a new tab is created. Cannot be disabled while "Hide the title bar" is On.</value>
+-    <comment>A description for what the "always show tabs" setting does. Presented near "Globals_AlwaysShowTabs.Header". This setting cannot be disabled while "Globals_ShowTitlebar.Header" is enabled.</comment>
++    <value>When disabled, the tab bar will appear when a new tab is created. Cannot be disabled when top tabs are shown in the title bar.</value>
++    <comment>A description for what the "always show tabs" setting does. Presented near "Globals_AlwaysShowTabs.Header". This setting cannot be disabled while top-positioned tabs are shown in the title bar.</comment>
+   </data>
+   <data name="Globals_NewTabPosition.Header" xml:space="preserve">
+     <value>Position of newly created tabs</value>
+@@ -268,6 +268,30 @@
+     <value>After the current tab</value>
+     <comment>An option to choose from for the "Position of newly created tabs" setting. When selected new tab appears after the current tab.</comment>
+   </data>
++  <data name="Globals_TabPosition.Header" xml:space="preserve">
++    <value>Tab position (requires relaunch)</value>
++    <comment>Header for a control that chooses which edge of the window contains the tab row. Changing this setting requires the user to relaunch the app.</comment>
++  </data>
++  <data name="Globals_TabPosition.Description" xml:space="preserve">
++    <value>Changes the position of the tab row for new windows. Changing this setting requires relaunching Windows Terminal.</value>
++    <comment>Description for the tab position setting and its relaunch requirement.</comment>
++  </data>
++  <data name="Globals_TabPositionTop.Content" xml:space="preserve">
++    <value>Top</value>
++    <comment>An option for placing the tab row at the top of the window.</comment>
++  </data>
++  <data name="Globals_TabPositionBottom.Content" xml:space="preserve">
++    <value>Bottom</value>
++    <comment>An option for placing the tab row at the bottom of the window.</comment>
++  </data>
++  <data name="Globals_TabPositionLeft.Content" xml:space="preserve">
++    <value>Left</value>
++    <comment>An option for placing the tab row on the left side of the window.</comment>
++  </data>
++  <data name="Globals_TabPositionRight.Content" xml:space="preserve">
++    <value>Right</value>
++    <comment>An option for placing the tab row on the right side of the window.</comment>
++  </data>
+   <data name="Globals_CopyOnSelect.Header" xml:space="preserve">
+     <value>Automatically copy selection to clipboard</value>
+     <comment>Header for a control to toggle whether selected text should be copied to the clipboard automatically, or not.</comment>
+@@ -2046,12 +2070,12 @@
+     <comment>An option to choose from for the "move tab direction". No movement.</comment>
+   </data>
+   <data name="Actions_MoveTabDirectionForward.Content" xml:space="preserve">
+-    <value>Forward (right)</value>
+-    <comment>An option to choose from for the "move tab direction". Moves the tab forward (right).</comment>
++    <value>Forward</value>
++    <comment>An option to choose from for the "move tab direction". Moves the tab toward the end of the tab strip.</comment>
+   </data>
+   <data name="Actions_MoveTabDirectionBackward.Content" xml:space="preserve">
+-    <value>Backward (left)</value>
+-    <comment>An option to choose from for the "move tab direction". Moves the tab backward (left).</comment>
++    <value>Backward</value>
++    <comment>An option to choose from for the "move tab direction". Moves the tab toward the start of the tab strip.</comment>
+   </data>
+   <data name="Actions_ScrollToMarkDirectionPrevious.Content" xml:space="preserve">
+     <value>Previous</value>
+diff --git a/src/cascadia/TerminalSettingsModel/EnumMappings.cpp b/src/cascadia/TerminalSettingsModel/EnumMappings.cpp
+index b92994c2d..a5b5bb709 100644
+--- a/src/cascadia/TerminalSettingsModel/EnumMappings.cpp
++++ b/src/cascadia/TerminalSettingsModel/EnumMappings.cpp
+@@ -32,6 +32,7 @@ namespace winrt::Microsoft::Terminal::Settings::Model::implementation
+     // Global Settings
+     DEFINE_ENUM_MAP(winrt::Windows::UI::Xaml::ElementTheme, ElementTheme);
+     DEFINE_ENUM_MAP(Model::NewTabPosition, NewTabPosition);
++    DEFINE_ENUM_MAP(Model::TabPosition, TabPosition);
+     DEFINE_ENUM_MAP(winrt::Microsoft::UI::Xaml::Controls::TabViewWidthMode, TabViewWidthMode);
+     DEFINE_ENUM_MAP(Microsoft::Terminal::Control::DefaultInputScope, DefaultInputScope);
+     DEFINE_ENUM_MAP(Model::LaunchMode, LaunchMode);
+diff --git a/src/cascadia/TerminalSettingsModel/EnumMappings.h b/src/cascadia/TerminalSettingsModel/EnumMappings.h
+index e85867045..47c6c600d 100644
+--- a/src/cascadia/TerminalSettingsModel/EnumMappings.h
++++ b/src/cascadia/TerminalSettingsModel/EnumMappings.h
+@@ -28,6 +28,7 @@ namespace winrt::Microsoft::Terminal::Settings::Model::implementation
+         // Global Settings
+         static winrt::Windows::Foundation::Collections::IMap<winrt::hstring, winrt::Windows::UI::Xaml::ElementTheme> ElementTheme();
+         static winrt::Windows::Foundation::Collections::IMap<winrt::hstring, NewTabPosition> NewTabPosition();
++        static winrt::Windows::Foundation::Collections::IMap<winrt::hstring, TabPosition> TabPosition();
+         static winrt::Windows::Foundation::Collections::IMap<winrt::hstring, winrt::Microsoft::UI::Xaml::Controls::TabViewWidthMode> TabViewWidthMode();
+         static winrt::Windows::Foundation::Collections::IMap<winrt::hstring, winrt::Microsoft::Terminal::Control::DefaultInputScope> DefaultInputScope();
+         static winrt::Windows::Foundation::Collections::IMap<winrt::hstring, FirstWindowPreference> FirstWindowPreference();
+diff --git a/src/cascadia/TerminalSettingsModel/EnumMappings.idl b/src/cascadia/TerminalSettingsModel/EnumMappings.idl
+index 7f52aace4..cd9a339fd 100644
+--- a/src/cascadia/TerminalSettingsModel/EnumMappings.idl
++++ b/src/cascadia/TerminalSettingsModel/EnumMappings.idl
+@@ -10,6 +10,7 @@ namespace Microsoft.Terminal.Settings.Model
+         // Global Settings
+         static Windows.Foundation.Collections.IMap<String, Windows.UI.Xaml.ElementTheme> ElementTheme { get; };
+         static Windows.Foundation.Collections.IMap<String, Microsoft.Terminal.Settings.Model.NewTabPosition> NewTabPosition { get; };
++        static Windows.Foundation.Collections.IMap<String, Microsoft.Terminal.Settings.Model.TabPosition> TabPosition { get; };
+         static Windows.Foundation.Collections.IMap<String, Microsoft.UI.Xaml.Controls.TabViewWidthMode> TabViewWidthMode { get; };
+         static Windows.Foundation.Collections.IMap<String, Microsoft.Terminal.Control.DefaultInputScope> DefaultInputScope { get; };
+         static Windows.Foundation.Collections.IMap<String, Microsoft.Terminal.Settings.Model.FirstWindowPreference> FirstWindowPreference { get; };
+diff --git a/src/cascadia/TerminalSettingsModel/GlobalAppSettings.idl b/src/cascadia/TerminalSettingsModel/GlobalAppSettings.idl
+index 80f9c1317..c3488d939 100644
+--- a/src/cascadia/TerminalSettingsModel/GlobalAppSettings.idl
++++ b/src/cascadia/TerminalSettingsModel/GlobalAppSettings.idl
+@@ -50,6 +50,14 @@ namespace Microsoft.Terminal.Settings.Model
+         AfterCurrentTab,
+     };
+ 
++    enum TabPosition
++    {
++        Top,
++        Bottom,
++        Left,
++        Right,
++    };
++
+     enum ConfirmOnClose
+     {
+         Never = 0,
+@@ -99,6 +107,7 @@ namespace Microsoft.Terminal.Settings.Model
+         INHERITABLE_SETTING(Boolean, AlwaysShowTabs);
+         INHERITABLE_SETTING(Boolean, ShowTabsFullscreen);
+         INHERITABLE_SETTING(NewTabPosition, NewTabPosition);
++        INHERITABLE_SETTING(TabPosition, TabPosition);
+         INHERITABLE_SETTING(Boolean, ShowTitleInTitlebar);
+         INHERITABLE_SETTING(Microsoft.UI.Xaml.Controls.TabViewWidthMode, TabWidthMode);
+         INHERITABLE_SETTING(Boolean, UseAcrylicInTabRow);
+diff --git a/src/cascadia/TerminalSettingsModel/MTSMSettings.h b/src/cascadia/TerminalSettingsModel/MTSMSettings.h
+index d056d3a23..ef4a7a27d 100644
+--- a/src/cascadia/TerminalSettingsModel/MTSMSettings.h
++++ b/src/cascadia/TerminalSettingsModel/MTSMSettings.h
+@@ -49,6 +49,7 @@ Author(s):
+     X(bool, DetectURLs, "experimental.detectURLs", true)                                                                                                                                              \
+     X(bool, AlwaysShowTabs, "alwaysShowTabs", true)                                                                                                                                                   \
+     X(Model::NewTabPosition, NewTabPosition, "newTabPosition", Model::NewTabPosition::AfterLastTab)                                                                                                   \
++    X(Model::TabPosition, TabPosition, "tabPosition", Model::TabPosition::Top)                                                                                                                        \
+     X(bool, ShowTitleInTitlebar, "showTerminalTitleInTitlebar", true)                                                                                                                                 \
+     X(Model::ConfirmOnClose, ConfirmOnClose, "warning.confirmOnClose", Model::ConfirmOnClose::Automatic)                                                                                              \
+     X(Model::ThemePair, Theme, "theme")                                                                                                                                                               \
+diff --git a/src/cascadia/TerminalSettingsModel/Resources/en-US/Resources.resw b/src/cascadia/TerminalSettingsModel/Resources/en-US/Resources.resw
+index b4a9e86e1..fc5ca8499 100644
+--- a/src/cascadia/TerminalSettingsModel/Resources/en-US/Resources.resw
++++ b/src/cascadia/TerminalSettingsModel/Resources/en-US/Resources.resw
+@@ -172,7 +172,7 @@
+   </data>
+   <data name="MoveTabCommandKey" xml:space="preserve">
+     <value>Move tab {0}</value>
+-    <comment>{0} will be replaced with a "forward (right)" / "backward (left)"</comment>
++    <comment>{0} will be replaced with "forward" or "backward". The physical direction depends on the tab strip position.</comment>
+   </data>
+   <data name="MoveTabToWindowCommandKey" xml:space="preserve">
+     <value>Move tab to window "{0}"</value>
+@@ -182,10 +182,10 @@
+     <value>Move tab to a new window</value>
+   </data>
+   <data name="MoveTabDirectionForward" xml:space="preserve">
+-    <value>forward (right)</value>
++    <value>forward</value>
+   </data>
+   <data name="MoveTabDirectionBackward" xml:space="preserve">
+-    <value>backward (left)</value>
++    <value>backward</value>
+   </data>
+   <data name="CloseTabsAfterDefaultCommandKey" xml:space="preserve">
+     <value>Close all tabs after the current tab</value>
+diff --git a/src/cascadia/TerminalSettingsModel/TerminalSettingsSerializationHelpers.h b/src/cascadia/TerminalSettingsModel/TerminalSettingsSerializationHelpers.h
+index 61bcf7243..5604e1fc9 100644
+--- a/src/cascadia/TerminalSettingsModel/TerminalSettingsSerializationHelpers.h
++++ b/src/cascadia/TerminalSettingsModel/TerminalSettingsSerializationHelpers.h
+@@ -693,6 +693,16 @@ JSON_ENUM_MAPPER(::winrt::Microsoft::Terminal::Settings::Model::IconStyle)
+     };
+ };
+ 
++JSON_ENUM_MAPPER(::winrt::Microsoft::Terminal::Settings::Model::TabPosition)
++{
++    JSON_MAPPINGS(4) = {
++        pair_type{ "top", ValueType::Top },
++        pair_type{ "bottom", ValueType::Bottom },
++        pair_type{ "left", ValueType::Left },
++        pair_type{ "right", ValueType::Right },
++    };
++};
++
+ // Possible ScrollToMarkDirection values
+ JSON_ENUM_MAPPER(::winrt::Microsoft::Terminal::Control::ScrollToMarkDirection)
+ {
+diff --git a/src/cascadia/TerminalSettingsModel/defaults.json b/src/cascadia/TerminalSettingsModel/defaults.json
+index 8971d3d39..82f3a0fbc 100644
+--- a/src/cascadia/TerminalSettingsModel/defaults.json
++++ b/src/cascadia/TerminalSettingsModel/defaults.json
+@@ -19,6 +19,7 @@
+     "alwaysShowTabs": true,
+     "showTabsInTitlebar": true,
+     "showTerminalTitleInTitlebar": true,
++    "tabPosition": "top",
+     "tabWidthMode": "equal",
+     "tabSwitcherMode": "inOrder",
+     "showAdminShield": true,
+diff --git a/src/cascadia/UnitTests_SettingsModel/DeserializationTests.cpp b/src/cascadia/UnitTests_SettingsModel/DeserializationTests.cpp
+index 914ab323f..1510ff0ed 100644
+--- a/src/cascadia/UnitTests_SettingsModel/DeserializationTests.cpp
++++ b/src/cascadia/UnitTests_SettingsModel/DeserializationTests.cpp
+@@ -366,6 +366,7 @@ namespace SettingsModelUnitTests
+         })" };
+         static constexpr std::string_view userSettings{ R"({
+             "showTabsInTitlebar": false,
++            "tabPosition": "left",
+             "initialCols" : 240,
+             "initialRows" : 60,
+             "profiles": [
+@@ -380,6 +381,17 @@ namespace SettingsModelUnitTests
+         VERIFY_ARE_EQUAL(240, settings->WindowSettingsDefaults().InitialCols());
+         VERIFY_ARE_EQUAL(60, settings->WindowSettingsDefaults().InitialRows());
+         VERIFY_ARE_EQUAL(false, settings->WindowSettingsDefaults().ShowTabsInTitlebar());
++        VERIFY_ARE_EQUAL(TabPosition::Left, settings->WindowSettingsDefaults().TabPosition());
++
++        static constexpr std::string_view topSettings{ R"({ "tabPosition": "top", "profiles": [{ "name": "profile" }] })" };
++        static constexpr std::string_view bottomSettings{ R"({ "tabPosition": "bottom", "profiles": [{ "name": "profile" }] })" };
++        static constexpr std::string_view rightSettings{ R"({ "tabPosition": "right", "profiles": [{ "name": "profile" }] })" };
++        static constexpr std::string_view defaultSettings{ R"({ "profiles": [{ "name": "profile" }] })" };
++
++        VERIFY_ARE_EQUAL(TabPosition::Top, createSettings(topSettings)->WindowSettingsDefaults().TabPosition());
++        VERIFY_ARE_EQUAL(TabPosition::Bottom, createSettings(bottomSettings)->WindowSettingsDefaults().TabPosition());
++        VERIFY_ARE_EQUAL(TabPosition::Right, createSettings(rightSettings)->WindowSettingsDefaults().TabPosition());
++        VERIFY_ARE_EQUAL(TabPosition::Top, createSettings(defaultSettings)->WindowSettingsDefaults().TabPosition());
+     }
+ 
+     void DeserializationTests::ValidateProfileOrdering()
